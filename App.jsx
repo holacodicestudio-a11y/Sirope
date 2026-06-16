@@ -1,11 +1,46 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
   Plus, Search, Edit2, Trash2, X, AlertTriangle,
   Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp
 } from "lucide-react";
+
+/* ══════════════════════════════════════════════
+   EXPORTAR EXCEL — funciona dentro de la app (APK)
+   En Android: guarda el archivo y abre "Compartir/Guardar".
+   En navegador: descarga normal.
+══════════════════════════════════════════════ */
+async function saveWorkbook(wb, filename, showToast){
+  try{
+    if (Capacitor?.isNativePlatform?.()){
+      const b64 = XLSX.write(wb, { type:"base64", bookType:"xlsx" });
+      const res = await Filesystem.writeFile({
+        path: filename,
+        data: b64,
+        directory: Directory.Cache,
+      });
+      await Share.share({
+        title: filename,
+        text: `Reporte de Sirope: ${filename}`,
+        url: res.uri,
+        dialogTitle: "Guardar o compartir el Excel",
+      });
+      showToast("Excel listo ✓");
+    } else {
+      XLSX.writeFile(wb, filename);
+      showToast("Excel descargado ✓");
+    }
+  }catch(err){
+    const msg = (err && err.message) ? err.message : String(err);
+    if (/cancel/i.test(msg)) return;          // el usuario cerró el menú de compartir
+    showToast("No se pudo exportar: " + msg, "error");
+  }
+}
 
 /* ══════════════════════════════════════════════
    GRUPOS (11 categorías reales de Sirope)
@@ -1188,13 +1223,30 @@ function PreciosView({products,setProducts,showToast}){
 function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProducts,showToast}){
   const fileRef=useRef();
 
-  const exportSheet=(name,data,cols)=>{
-    const rows=data.map(row=>{const r={};cols.forEach(c=>{r[c.h]=row[c.k]??""});return r;});
-    const ws=XLSX.utils.json_to_sheet(rows);
+  const exportSheet=async(name,data,cols)=>{
+    // Construye filas legibles: grupos con nombre, fechas con formato
+    const rows=data.map(row=>{
+      const r={};
+      cols.forEach(c=>{
+        let v=row[c.k];
+        if(c.k==="grp")      v=GRP[v]?.label ?? v;          // "jarabes" -> "JARABES"
+        else if(c.k==="date")v=v?fmtD(v):"";                // fecha legible
+        else if(v==null)     v="";
+        r[c.h]=v;
+      });
+      return r;
+    });
+    const ws=XLSX.utils.json_to_sheet(rows,{header:cols.map(c=>c.h)});
+    // Ancho de columnas automático según el contenido
+    ws["!cols"]=cols.map(c=>{
+      const dataMax=rows.reduce((m,row)=>Math.max(m,String(row[c.h]??"").length),0);
+      return { wch: Math.min(42, Math.max(12, c.h.length, dataMax)+2) };
+    });
+    // Congela la fila de encabezados
+    ws["!freeze"]={xSplit:0,ySplit:1};
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,name);
-    XLSX.writeFile(wb,`Sirope_${name}_${tdayStr()}.xlsx`);
-    showToast(`${name} exportado ✓`);
+    await saveWorkbook(wb,`Sirope_${name}_${tdayStr()}.xlsx`,showToast);
   };
 
   const exportInv=()=>exportSheet("Inventario",products,[
