@@ -13,12 +13,12 @@ import {
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey:            "PEGA_AQUI_API_KEY",
-  authDomain:        "PEGA_AQUI_AUTH_DOMAIN",
-  projectId:         "PEGA_AQUI_PROJECT_ID",
-  storageBucket:     "PEGA_AQUI_STORAGE_BUCKET",
-  messagingSenderId: "PEGA_AQUI_SENDER_ID",
-  appId:             "PEGA_AQUI_APP_ID",
+  apiKey:            "AIzaSyCUeYUE6UU8xeSTFhP3UVV9PajNOBWclTk",
+  authDomain:        "sirope-f3134.firebaseapp.com",
+  projectId:         "sirope-f3134",
+  storageBucket:     "sirope-f3134.firebasestorage.app",
+  messagingSenderId: "668210143755",
+  appId:             "1:668210143755:web:860b5a71cdc487bfdc9d0e",
 };
 
 // ¿Ya está configurado? (para mostrar aviso amable si aún no)
