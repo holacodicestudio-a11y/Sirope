@@ -1137,9 +1137,13 @@ function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
     setModal(true);
   };
   const save=()=>{
+    if(!form.prodId) return showToast("Selecciona un producto","error");
     if(+form.qty<=0) return showToast("Cantidad inválida","error");
-    setProdLogs(prev=>[...prev,{...form,id:nid("prod"),qty:+form.qty}]);
-    showToast("Lote registrado ✓");setModal(false);
+    const q=+form.qty;
+    setProdLogs(prev=>[...prev,{...form,id:nid("prod"),qty:q}]);
+    // La producción ENTRA al almacén: suma al stock del producto
+    setProducts(prev=>prev.map(p=>p.id===form.prodId?{...p,stock:(p.stock||0)+q}:p));
+    showToast(`Lote registrado · +${q} al almacén ✓`);setModal(false);
   };
 
   const filtered=useMemo(()=>prodLogs.filter(l=>!selGrp||l.grp===selGrp),[prodLogs,selGrp]);
