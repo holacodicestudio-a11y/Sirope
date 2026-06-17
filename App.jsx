@@ -5,7 +5,7 @@ import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 import { db, auth, FIREBASE_LISTO } from "./firebase";
 import {
-  collection, doc, onSnapshot, writeBatch, getDoc, setDoc,
+  collection, doc, onSnapshot, writeBatch, getDoc, getDocs, setDoc,
 } from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
@@ -1391,6 +1391,16 @@ function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProd
     ]);
   };
 
+  // Restaura del catálogo base los productos que falten (sin duplicar
+  // ni borrar el stock de los que ya existen).
+  const restoreCatalog=()=>{
+    const have=new Set(products.map(p=>`${p.grp}|${p.name.trim().toLowerCase()}`));
+    const missing=PRODS_INIT.filter(p=>!have.has(`${p.grp}|${p.name.trim().toLowerCase()}`));
+    if(missing.length===0){ showToast("El catálogo ya está completo ✓"); return; }
+    setProducts(prev=>[...prev, ...missing.map(p=>({...p, id:nid("p")}))]);
+    showToast(`${missing.length} productos restaurados ✓`);
+  };
+
   const importProds=async e=>{
     const file=e.target.files[0];if(!file)return;
     try{
@@ -1455,6 +1465,22 @@ function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProd
         </p>
         <input type="file" accept=".xlsx,.xls,.csv" ref={fileRef} onChange={importProds} style={{display:"none"}}/>
         <Btn onClick={()=>fileRef.current?.click()}><Upload size={13}/> Seleccionar archivo</Btn>
+      </div>
+
+      <h3 style={{fontSize:11,fontWeight:800,color:"#94A3B8",textTransform:"uppercase",
+        letterSpacing:.7,margin:"22px 0 10px"}}>Restaurar catálogo</h3>
+      <div style={{background:"#FFF7ED",border:"1.5px solid #FED7AA",borderRadius:14,
+        padding:18,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:180}}>
+          <p style={{margin:"0 0 3px",fontWeight:700,fontSize:13,color:"#9A3412"}}>
+            ¿Faltan productos del catálogo base?
+          </p>
+          <p style={{margin:0,fontSize:11,color:"#C2410C"}}>
+            Vuelve a cargar los productos de fábrica que falten. No borra ni cambia el
+            stock de los que ya tienes ({products.length} en este momento).
+          </p>
+        </div>
+        <Btn onClick={restoreCatalog}><RefreshCw size={13}/> Restaurar catálogo</Btn>
       </div>
     </div>
   );
@@ -1559,20 +1585,22 @@ export default function SiroperApp(){
   const [sideOpen,  setSideOpen]  = useState(
     !(typeof window!=="undefined" && window.innerWidth<820));
 
-  // Inicia sesión anónima en la nube y siembra el catálogo la primera vez
+  // Inicia sesión anónima y CARGA el catálogo si la nube está vacía.
+  // Es auto-reparable: si por cualquier motivo el catálogo quedó vacío,
+  // se vuelve a llenar solo (sin borrar stock existente, porque solo
+  // siembra cuando NO hay ningún producto).
   useEffect(()=>{
     if(!FIREBASE_LISTO) return;
     const unsub=onAuthStateChanged(auth,async(user)=>{
       if(user){
         setAuthReady(true);
-        // Sembrar catálogo de productos solo una vez
         try{
-          const metaRef=doc(db,"meta","app");
-          const metaSnap=await getDoc(metaRef);
-          if(!(metaSnap.exists() && metaSnap.data().seeded)){
+          const snap=await getDocs(collection(db,"products"));
+          // Solo siembra si está realmente vacío y hay conexión
+          // (evita rellenar por error con una caché fría sin internet).
+          if(snap.empty && (typeof navigator==="undefined" || navigator.onLine)){
             const batch=writeBatch(db);
             PRODS_INIT.forEach(p=>{ const {id,...d}=p; batch.set(doc(db,"products",String(id)),d); });
-            batch.set(metaRef,{seeded:true,seededAt:Date.now()});
             await batch.commit();
           }
         }catch(e){ console.error("seed",e); }
