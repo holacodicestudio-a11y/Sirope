@@ -1,4 +1,4 @@
-name: Construir APK de Sirope
+name: Construir APKs de Sirope
 
 on:
   push:
@@ -8,20 +8,52 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: jefe
+            appid: com.sirope.inventario
+            appname: "Sirope Admin"
+            artifact: Sirope-Admin-APK
+          - role: productor
+            appid: com.sirope.produccion
+            appname: "Sirope Produccion"
+            artifact: Sirope-Produccion-APK
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
-      - run: npm install
-      - run: npm run build
-      - run: npx cap add android || npx cap sync android
-      - run: npx cap sync android
-      - run: chmod +x android/gradlew
-      - working-directory: android
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Ajustar nombre e id de la app (${{ matrix.role }})
+        run: |
+          node -e "const fs=require('fs');const f='capacitor.config.json';const c=JSON.parse(fs.readFileSync(f));c.appId='${{ matrix.appid }}';c.appName='${{ matrix.appname }}';fs.writeFileSync(f,JSON.stringify(c,null,2));"
+
+      - name: Compilar la app web (rol ${{ matrix.role }})
+        run: npm run build
+        env:
+          VITE_ROLE: ${{ matrix.role }}
+
+      - name: Crear el proyecto Android
+        run: npx cap add android || npx cap sync android
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Permisos a Gradle
+        run: chmod +x android/gradlew
+
+      - name: Construir el APK
+        working-directory: android
         run: ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
+
+      - name: Subir el APK (${{ matrix.appname }})
+        uses: actions/upload-artifact@v4
         with:
-          name: Sirope-APK
+          name: ${{ matrix.artifact }}
           path: android/app/build/outputs/apk/debug/app-debug.apk
