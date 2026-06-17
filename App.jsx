@@ -7,7 +7,7 @@ import { db, auth, FIREBASE_LISTO } from "./firebase";
 import {
   collection, doc, onSnapshot, writeBatch, getDoc, getDocs, setDoc,
 } from "firebase/firestore";
-import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
@@ -67,6 +67,14 @@ const GRP = {
 const UNITS   = ["L","pzas","tambo","kg"];
 const SIDEBAR_W = 220;
 const BRAND     = "#FF6B35";
+
+/* Rol de la app — se fija al construir cada APK (VITE_ROLE):
+     "jefe"      → app de administración: acceso total.
+     "productor" → app de producción: solo ver stock (sin precios),
+                   registrar producción e importar/exportar.            */
+const ROLE = (typeof __APP_ROLE__ !== "undefined" ? __APP_ROLE__ : "jefe");
+const IS_BOSS = ROLE === "jefe";
+let CURRENT_USER_EMAIL = "";
 
 /* ══════════════════════════════════════════════
    SINCRONIZACIÓN CON LA NUBE (Firebase Firestore)
@@ -613,12 +621,12 @@ function InventarioView({products,setProducts,showToast}){
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div>
-          <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>Inventario</h2>
+          <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>{IS_BOSS?"Inventario":"Stock general"}</h2>
           <p style={{margin:"2px 0 0",fontSize:11,color:"#94A3B8"}}>
             {selGrp?`${GRP[selGrp].label} · `:"Todos los grupos · "}{filtered.length} productos
           </p>
         </div>
-        <Btn onClick={openAdd}><Plus size={14}/> Nuevo Producto</Btn>
+        {IS_BOSS && <Btn onClick={openAdd}><Plus size={14}/> Nuevo Producto</Btn>}
       </div>
 
       {/* GROUP GRID */}
@@ -654,8 +662,10 @@ function InventarioView({products,setProducts,showToast}){
         </Card>
       ) : (
         <Card>
-          <Tbl cols={["Producto","Grupo","Stock","Mín.","Unidad","Costo","Precio","Margen","Estado",""]}>
-            {pageItems.length===0&&<EmptyRow cols={10} msg="Sin productos para este filtro"/>}
+          <Tbl cols={IS_BOSS
+              ? ["Producto","Grupo","Stock","Mín.","Unidad","Costo","Precio","Margen","Estado",""]
+              : ["Producto","Grupo","Stock","Mín.","Unidad","Estado"]}>
+            {pageItems.length===0&&<EmptyRow cols={IS_BOSS?10:6} msg="Sin productos para este filtro"/>}
             {pageItems.map(p=>{
               const m=p.cost>0?Math.round(((p.price-p.cost)/p.cost)*100):0;
               return(
@@ -665,16 +675,18 @@ function InventarioView({products,setProducts,showToast}){
                   <Td><span style={{fontWeight:900,fontSize:14}}>{p.stock}</span></Td>
                   <Td style={{color:"#94A3B8"}}>{p.min}</Td>
                   <Td style={{color:"#64748B"}}>{p.unit}</Td>
-                  <Td>{fmt(p.cost)}</Td>
-                  <Td style={{fontWeight:700,color:BRAND}}>{fmt(p.price)}</Td>
-                  <Td><span style={{color:m>=30?"#059669":m>=10?"#D97706":"#94A3B8",fontWeight:700}}>{m}%</span></Td>
+                  {IS_BOSS && <Td>{fmt(p.cost)}</Td>}
+                  {IS_BOSS && <Td style={{fontWeight:700,color:BRAND}}>{fmt(p.price)}</Td>}
+                  {IS_BOSS && <Td><span style={{color:m>=30?"#059669":m>=10?"#D97706":"#94A3B8",fontWeight:700}}>{m}%</span></Td>}
                   <Td><StockBadge stock={p.stock} min={p.min}/></Td>
+                  {IS_BOSS && (
                   <Td>
                     <div style={{display:"flex",gap:4}}>
                       <Btn small variant="secondary" onClick={()=>openEdit(p)}><Edit2 size={11}/></Btn>
                       <Btn small variant="danger" onClick={()=>setConfirm(p.id)}><Trash2 size={11}/></Btn>
                     </div>
                   </Td>
+                  )}
                 </Tr>
               );
             })}
@@ -1140,7 +1152,7 @@ function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
     if(!form.prodId) return showToast("Selecciona un producto","error");
     if(+form.qty<=0) return showToast("Cantidad inválida","error");
     const q=+form.qty;
-    setProdLogs(prev=>[...prev,{...form,id:nid("prod"),qty:q}]);
+    setProdLogs(prev=>[...prev,{...form,id:nid("prod"),qty:q,by:CURRENT_USER_EMAIL}]);
     // La producción ENTRA al almacén: suma al stock del producto
     setProducts(prev=>prev.map(p=>p.id===form.prodId?{...p,stock:(p.stock||0)+q}:p));
     showToast(`Lote registrado · +${q} al almacén ✓`);setModal(false);
@@ -1373,6 +1385,12 @@ function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProd
     {k:"min",h:"Stock Mínimo"},{k:"unit",h:"Unidad"},{k:"cost",h:"Costo"},{k:"price",h:"Precio"},
   ]);
 
+  // Exportación de stock SIN precios (para la app de Producción)
+  const exportStock=()=>exportSheet("Stock",products,[
+    {k:"name",h:"Producto"},{k:"grp",h:"Grupo"},{k:"stock",h:"Stock"},
+    {k:"min",h:"Stock Mínimo"},{k:"unit",h:"Unidad"},
+  ]);
+
   const exportEnt=()=>{
     const d=entries.map(e=>({...e,
       producto:products.find(p=>p.id===e.prodId)?.name||"",
@@ -1448,15 +1466,17 @@ function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProd
       <h3 style={{fontSize:11,fontWeight:800,color:"#94A3B8",textTransform:"uppercase",
         letterSpacing:.7,marginBottom:10}}>Exportar a Excel</h3>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:10,marginBottom:26}}>
-        <ExpBtn label={`Inventario (${products.length} productos)`} icon={<Package size={16}/>} color={BRAND} onClick={exportInv}/>
-        <ExpBtn label={`Entradas (${entries.length})`} icon={<ArrowDownLeft size={16}/>} color="#059669" onClick={exportEnt}/>
-        <ExpBtn label={`Salidas (${exits.length})`} icon={<ArrowUpRight size={16}/>} color="#DC2626" onClick={exportSal}/>
-        <ExpBtn label={`Clientes (${clients.length})`} icon={<Users size={16}/>} color="#1E40AF" onClick={()=>exportSheet("Clientes",clients,[
-          {k:"name",h:"Nombre"},{k:"phone",h:"Teléfono"},{k:"email",h:"Email"},{k:"address",h:"Dirección"},{k:"notes",h:"Notas"}])}/>
-        <ExpBtn label={`Proveedores (${suppliers.length})`} icon={<Truck size={16}/>} color="#D97706" onClick={()=>exportSheet("Proveedores",suppliers,[
-          {k:"name",h:"Empresa"},{k:"contact",h:"Contacto"},{k:"phone",h:"Teléfono"},{k:"email",h:"Email"},{k:"address",h:"Dirección"}])}/>
+        {IS_BOSS
+          ? <ExpBtn label={`Inventario (${products.length} productos)`} icon={<Package size={16}/>} color={BRAND} onClick={exportInv}/>
+          : <ExpBtn label={`Stock (${products.length} productos)`} icon={<Package size={16}/>} color={BRAND} onClick={exportStock}/>}
+        {IS_BOSS && <ExpBtn label={`Entradas (${entries.length})`} icon={<ArrowDownLeft size={16}/>} color="#059669" onClick={exportEnt}/>}
+        {IS_BOSS && <ExpBtn label={`Salidas (${exits.length})`} icon={<ArrowUpRight size={16}/>} color="#DC2626" onClick={exportSal}/>}
+        {IS_BOSS && <ExpBtn label={`Clientes (${clients.length})`} icon={<Users size={16}/>} color="#1E40AF" onClick={()=>exportSheet("Clientes",clients,[
+          {k:"name",h:"Nombre"},{k:"phone",h:"Teléfono"},{k:"email",h:"Email"},{k:"address",h:"Dirección"},{k:"notes",h:"Notas"}])}/>}
+        {IS_BOSS && <ExpBtn label={`Proveedores (${suppliers.length})`} icon={<Truck size={16}/>} color="#D97706" onClick={()=>exportSheet("Proveedores",suppliers,[
+          {k:"name",h:"Empresa"},{k:"contact",h:"Contacto"},{k:"phone",h:"Teléfono"},{k:"email",h:"Email"},{k:"address",h:"Dirección"}])}/>}
         <ExpBtn label={`Producción (${prodLogs.length})`} icon={<FlaskConical size={16}/>} color="#6D28D9" onClick={()=>exportSheet("Produccion",prodLogs.map(l=>({...l,producto:products.find(p=>p.id===l.prodId)?.name||""})),[
-          {k:"date",h:"Fecha"},{k:"grp",h:"Grupo"},{k:"producto",h:"Producto"},{k:"qty",h:"Cantidad"},{k:"unit",h:"Unidad"},{k:"notes",h:"Notas"}])}/>
+          {k:"date",h:"Fecha"},{k:"grp",h:"Grupo"},{k:"producto",h:"Producto"},{k:"qty",h:"Cantidad"},{k:"unit",h:"Unidad"},{k:"by",h:"Registró"},{k:"notes",h:"Notas"}])}/>
       </div>
       <h3 style={{fontSize:11,fontWeight:800,color:"#94A3B8",textTransform:"uppercase",
         letterSpacing:.7,marginBottom:10}}>Importar desde Excel</h3>
@@ -1557,7 +1577,7 @@ function LoadingScreen({error}){
           <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:900,color:"#DC2626"}}>No se pudo conectar</h2>
           <p style={{margin:0,fontSize:12,color:"#475569",lineHeight:1.5}}>{error}</p>
           <p style={{margin:"12px 0 0",fontSize:11,color:"#94A3B8"}}>
-            Revisa que activaste <b>Authentication → Anónimo</b> en Firebase.
+            Revisa que activaste <b>Authentication → Correo/Contraseña</b> en Firebase.
           </p>
         </>
       ) : (
@@ -1573,8 +1593,53 @@ function LoadingScreen({error}){
   );
 }
 
+function LoginScreen(){
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const submit=async()=>{
+    if(!email.trim()||!pass) return setErr("Escribe tu correo y contraseña.");
+    setErr(null); setBusy(true);
+    try{
+      await signInWithEmailAndPassword(auth,email.trim(),pass);
+    }catch(e){
+      const m=String(e&&e.code||e);
+      setErr(/network/.test(m) ? "Sin conexión. Revisa tu internet."
+            : "Correo o contraseña incorrectos.");
+      setBusy(false);
+    }
+  };
+  return(
+    <CenterBox>
+      <div style={{width:46,height:46,background:"#0D1629",borderRadius:13,margin:"0 auto 14px",
+        display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 0 18px ${BRAND}55`}}>
+        <span style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:900,
+          fontSize:24,color:"#fff"}}>S</span>
+      </div>
+      <h2 style={{margin:"0 0 2px",fontSize:19,fontWeight:900,color:"#1E293B"}}>
+        Sirope {IS_BOSS?"Admin":"Producción"}
+      </h2>
+      <p style={{margin:"0 0 18px",fontSize:12,color:"#94A3B8"}}>Inicia sesión para continuar</p>
+      <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Correo"
+        type="email" autoCapitalize="none"
+        style={{...inp,marginBottom:10}}/>
+      <input value={pass} onChange={e=>setPass(e.target.value)} placeholder="Contraseña"
+        type="password" onKeyDown={e=>e.key==="Enter"&&submit()}
+        style={{...inp,marginBottom:14}}/>
+      {err&&<p style={{margin:"0 0 12px",fontSize:12,color:"#DC2626",fontWeight:700}}>{err}</p>}
+      <Btn onClick={submit} disabled={busy} style={{width:"100%",justifyContent:"center"}}>
+        {busy?"Entrando…":"Entrar"}
+      </Btn>
+      <p style={{margin:"16px 0 0",fontSize:11,color:"#94A3B8",lineHeight:1.5}}>
+        ¿No tienes acceso? Pídele al administrador que te cree un usuario.
+      </p>
+    </CenterBox>
+  );
+}
+
 export default function SiroperApp(){
-  const [view,      setView]      = useState("dashboard");
+  const [view,      setView]      = useState(IS_BOSS ? "dashboard" : "inventario");
   const [products,  setProducts]  = useCloud("products");
   const [entries,   setEntries]   = useCloud("entries");
   const [exits,     setExits]     = useCloud("exits");
@@ -1582,26 +1647,24 @@ export default function SiroperApp(){
   const [suppliers, setSuppliers] = useCloud("suppliers");
   const [prodLogs,  setProdLogs]  = useCloud("prodlogs");
   const [toast,     setToast]     = useState(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [authError, setAuthError] = useState(null);
+  const [user,        setUser]        = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [isMobile,  setIsMobile]  = useState(
     typeof window!=="undefined" && window.innerWidth<820);
   const [sideOpen,  setSideOpen]  = useState(
     !(typeof window!=="undefined" && window.innerWidth<820));
 
-  // Inicia sesión anónima y CARGA el catálogo si la nube está vacía.
-  // Es auto-reparable: si por cualquier motivo el catálogo quedó vacío,
-  // se vuelve a llenar solo (sin borrar stock existente, porque solo
-  // siembra cuando NO hay ningún producto).
+  // Login con correo/contraseña. Cada usuario entra con su cuenta.
+  // El catálogo se siembra solo si está vacío (solo desde la app Admin).
   useEffect(()=>{
     if(!FIREBASE_LISTO) return;
-    const unsub=onAuthStateChanged(auth,async(user)=>{
-      if(user){
-        setAuthReady(true);
+    const unsub=onAuthStateChanged(auth,async(u)=>{
+      setUser(u);
+      setAuthChecked(true);
+      CURRENT_USER_EMAIL = u ? (u.email||"") : "";
+      if(u && IS_BOSS){
         try{
           const snap=await getDocs(collection(db,"products"));
-          // Solo siembra si está realmente vacío y hay conexión
-          // (evita rellenar por error con una caché fría sin internet).
           if(snap.empty && (typeof navigator==="undefined" || navigator.onLine)){
             const batch=writeBatch(db);
             PRODS_INIT.forEach(p=>{ const {id,...d}=p; batch.set(doc(db,"products",String(id)),d); });
@@ -1610,7 +1673,6 @@ export default function SiroperApp(){
         }catch(e){ console.error("seed",e); }
       }
     });
-    signInAnonymously(auth).catch(e=>setAuthError(e.message||String(e)));
     return ()=>unsub();
   },[]);
 
@@ -1643,8 +1705,10 @@ export default function SiroperApp(){
 
   // Pantalla de aviso si Firebase aún no está configurado
   if(!FIREBASE_LISTO) return <SetupScreen/>;
-  // Pantalla de carga mientras conecta a la nube
-  if(!authReady) return <LoadingScreen error={authError}/>;
+  // Mientras verifica la sesión
+  if(!authChecked) return <LoadingScreen/>;
+  // Si no hay sesión, pide login
+  if(!user) return <LoginScreen/>;
 
   const alerts=products.filter(p=>p.stock<p.min).length;
   const props={products,setProducts,entries,setEntries,exits,setExits,
@@ -1664,6 +1728,15 @@ export default function SiroperApp(){
       default: return null;
     }
   };
+
+  // Navegación según el rol. Producción solo ve Stock, Producción y Reportes.
+  const PRODUCER_VIEWS=["inventario","produccion","reportes"];
+  const navItems = IS_BOSS
+    ? NAV
+    : NAV.filter(n=>PRODUCER_VIEWS.includes(n.id))
+         .map(n=>n.id==="inventario"?{...n,label:"Stock"}:n);
+
+  const doLogout=async()=>{ try{ await signOut(auth); }catch(e){} };
 
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"system-ui,-apple-system,sans-serif",
@@ -1701,7 +1774,7 @@ export default function SiroperApp(){
               <p style={{margin:0,fontFamily:"Georgia,serif",fontStyle:"italic",
                 fontSize:19,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:-.5}}>Sirope</p>
               <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.35)",
-                fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Inventario</p>
+                fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{IS_BOSS?"Admin":"Producción"}</p>
             </div>
           )}
           <button onClick={()=>setSideOpen(p=>!p)}
@@ -1712,7 +1785,7 @@ export default function SiroperApp(){
 
         {/* Nav items */}
         <nav style={{flex:1,padding:"8px 6px",overflowY:"auto"}}>
-          {NAV.map(item=>{
+          {navItems.map(item=>{
             const active=view===item.id;
             const showLabel = sideOpen||isMobile;
             return(
@@ -1740,14 +1813,24 @@ export default function SiroperApp(){
         </nav>
 
         {/* Footer */}
-        <div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,.05)",
-          display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          <div style={{width:7,height:7,borderRadius:99,
-            background:online?"#059669":"#F59E0B",
-            boxShadow:`0 0 6px ${online?"#059669":"#F59E0B"}`,flexShrink:0}}/>
-          {(sideOpen||isMobile)&&<span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontWeight:700}}>
-            {online ? `En línea · ${products.length} productos` : "Sin conexión · se sincronizará"}
-          </span>}
+        <div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:(sideOpen||isMobile)?8:0}}>
+            <div style={{width:7,height:7,borderRadius:99,
+              background:online?"#059669":"#F59E0B",
+              boxShadow:`0 0 6px ${online?"#059669":"#F59E0B"}`,flexShrink:0}}/>
+            {(sideOpen||isMobile)&&<span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontWeight:700,
+              overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+              {online ? (user&&user.email ? user.email : "En línea") : "Sin conexión · se sincronizará"}
+            </span>}
+          </div>
+          {(sideOpen||isMobile)&&(
+            <button onClick={doLogout}
+              style={{width:"100%",background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,
+                color:"rgba(255,255,255,.6)",cursor:"pointer",padding:"7px",fontSize:11,fontWeight:700,
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              Cerrar sesión
+            </button>
+          )}
         </div>
       </aside>
 
@@ -1766,7 +1849,7 @@ export default function SiroperApp(){
             )}
             <h1 style={{margin:0,fontSize:14,fontWeight:900,color:"#1E293B",
               whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-              {NAV.find(n=>n.id===view)?.label}
+              {navItems.find(n=>n.id===view)?.label}
             </h1>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
