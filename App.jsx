@@ -742,6 +742,94 @@ function InventarioView({products,setProducts,showToast}){
 }
 
 /* ══════════════════════════════════════════════
+   BUSCADOR DE PRODUCTO  (reemplaza el <select> de 250
+   opciones que se atora en Android). Permite teclear,
+   filtrar y CREAR un producto nuevo sobre la marcha.
+══════════════════════════════════════════════ */
+function createProductInline(setProducts, showToast, grp, rawName){
+  const g = GRP[grp] ? grp : "jarabes";
+  const np = { id:nid("p"), name:String(rawName).trim(), grp:g,
+    stock:0, min:5, unit:GRP[g].defUnit, cost:0, price:0 };
+  setProducts(prev=>[...prev, np]);
+  showToast(`Producto «${np.name}» creado en ${GRP[g].label}`);
+  return np.id;
+}
+
+function ProductPicker({products, value, onChange, grp, onCreate, placeholder}){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState("");
+  const selected=products.find(p=>p.id===value);
+
+  const list=useMemo(()=>{
+    const qq=q.trim().toLowerCase();
+    return products
+      .filter(p=>!grp||p.grp===grp)
+      .filter(p=>!qq||p.name.toLowerCase().includes(qq))
+      .slice(0,80);
+  },[products,grp,q]);
+
+  const qq=q.trim();
+  const exact=products.some(p=>p.name.toLowerCase()===qq.toLowerCase() && (!grp||p.grp===grp));
+
+  const pick=(id)=>{ onChange(id); setOpen(false); setQ(""); };
+  const create=()=>{ if(!qq||!onCreate) return; const id=onCreate(qq); if(id) pick(id); };
+
+  return(
+    <div>
+      {/* Caja con la selección actual */}
+      <div onClick={()=>setOpen(o=>!o)}
+        style={{...inp, display:"flex", alignItems:"center", justifyContent:"space-between",
+          cursor:"pointer", gap:8}}>
+        <span style={{color:selected?"#1E293B":"#94A3B8", overflow:"hidden",
+          whiteSpace:"nowrap", textOverflow:"ellipsis", fontSize:13}}>
+          {selected ? `${GRP[selected.grp]?.emoji||""} ${selected.name}`
+                    : (placeholder||"Toca para buscar un producto")}
+        </span>
+        <Search size={14} style={{color:"#94A3B8",flexShrink:0}}/>
+      </div>
+
+      {open&&(
+        <div style={{marginTop:6, border:"1.5px solid #E2E8F0", borderRadius:10,
+          overflow:"hidden", background:"#fff", boxShadow:"0 8px 24px rgba(0,0,0,.10)"}}>
+          <div style={{padding:8, borderBottom:"1px solid #F1F5F9"}}>
+            <input autoFocus value={q} onChange={e=>setQ(e.target.value)}
+              placeholder="Escribe el nombre…"
+              style={{...inp, padding:"8px 10px"}}/>
+          </div>
+          <div style={{maxHeight:240, overflowY:"auto"}}>
+            {list.length===0 && !qq && (
+              <div style={{padding:14, fontSize:12, color:"#94A3B8", textAlign:"center"}}>
+                Escribe para buscar tu producto…
+              </div>
+            )}
+            {list.map(p=>(
+              <div key={p.id} onClick={()=>pick(p.id)}
+                style={{padding:"10px 12px", cursor:"pointer", display:"flex",
+                  justifyContent:"space-between", gap:8, fontSize:13,
+                  borderBottom:"1px solid #F8FAFC",
+                  background:p.id===value?"#FFF7ED":"#fff"}}>
+                <span style={{overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                  {GRP[p.grp]?.emoji} {p.name}
+                </span>
+                <span style={{color:"#94A3B8",flexShrink:0,fontSize:11}}>{p.stock} {p.unit}</span>
+              </div>
+            ))}
+            {qq && !exact && onCreate && (
+              <div onClick={create}
+                style={{padding:"12px", cursor:"pointer", display:"flex",
+                  alignItems:"center", gap:8, fontSize:13, fontWeight:800,
+                  color:BRAND, background:"#FFF7ED"}}>
+                <Plus size={15}/> Crear nuevo producto: «{qq}»
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ENTRADAS VIEW
 ══════════════════════════════════════════════ */
 function EntradasView({entries,setEntries,products,setProducts,suppliers,showToast}){
@@ -754,8 +842,7 @@ function EntradasView({entries,setEntries,products,setProducts,suppliers,showToa
   const filtProds=selGrp?products.filter(p=>p.grp===selGrp):products;
 
   const openAdd=()=>{
-    const first=filtProds[0]||products[0];
-    setForm({date:tdayStr(),prodId:first?.id||"",qty:1,cost:"",provId:suppliers[0]?.id||"",notes:""});
+    setForm({date:tdayStr(),prodId:"",qty:1,cost:"",provId:suppliers[0]?.id||"",notes:""});
     setModal(true);
   };
   const save=()=>{
@@ -832,11 +919,9 @@ function EntradasView({entries,setEntries,products,setProducts,suppliers,showToa
             </FSelect>
           </Field>
           <Field label="Producto">
-            <FSelect value={form.prodId} onChange={f("prodId")}>
-              {(selGrp?products.filter(p=>p.grp===selGrp):products).map(p=>(
-                <option key={p.id} value={p.id}>{GRP[p.grp]?.emoji} {p.name} — stock:{p.stock} {p.unit}</option>
-              ))}
-            </FSelect>
+            <ProductPicker products={products} value={form.prodId} grp={selGrp}
+              onChange={id=>setForm(prev=>({...prev,prodId:id}))}
+              onCreate={name=>createProductInline(setProducts,showToast,selGrp,name)}/>
           </Field>
           <FormRow>
             <Field label="Cantidad" half><FInput type="number" value={form.qty} onChange={f("qty")} min={1}/></Field>
@@ -864,8 +949,7 @@ function SalidasView({exits,setExits,products,setProducts,clients,showToast}){
   const f=k=>e=>setForm(prev=>({...prev,[k]:e.target.value}));
 
   const openAdd=()=>{
-    const first=selGrp?products.find(p=>p.grp===selGrp):products[0];
-    setForm({date:tdayStr(),prodId:first?.id||"",qty:1,price:"",cliId:clients[0]?.id||"",notes:""});
+    setForm({date:tdayStr(),prodId:"",qty:1,price:"",cliId:clients[0]?.id||"",notes:""});
     setModal(true);
   };
   const save=()=>{
@@ -942,11 +1026,9 @@ function SalidasView({exits,setExits,products,setProducts,clients,showToast}){
             </FSelect>
           </Field>
           <Field label="Producto">
-            <FSelect value={form.prodId} onChange={f("prodId")}>
-              {(selGrp?products.filter(p=>p.grp===selGrp):products).map(p=>(
-                <option key={p.id} value={p.id}>{GRP[p.grp]?.emoji} {p.name} — disponible:{p.stock} {p.unit}</option>
-              ))}
-            </FSelect>
+            <ProductPicker products={products} value={form.prodId} grp={selGrp}
+              onChange={id=>setForm(prev=>({...prev,prodId:id}))}
+              onCreate={name=>createProductInline(setProducts,showToast,selGrp,name)}/>
           </Field>
           <FormRow>
             <Field label="Cantidad" half><FInput type="number" value={form.qty} onChange={f("qty")} min={1}/></Field>
@@ -1041,7 +1123,7 @@ function CRUDView({title,items,setItems,fields,idKey,showToast}){
 /* ══════════════════════════════════════════════
    PRODUCCIÓN VIEW
 ══════════════════════════════════════════════ */
-function ProduccionView({prodLogs,setProdLogs,products,showToast}){
+function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
   const [selGrp,setSelGrp]=useState(null);
   const [modal,setModal]=useState(false);
   const [form,setForm]=useState({});
@@ -1050,8 +1132,7 @@ function ProduccionView({prodLogs,setProdLogs,products,showToast}){
   const filtProds=selGrp?products.filter(p=>p.grp===selGrp):products;
 
   const openAdd=()=>{
-    const first=filtProds[0]||products[0];
-    setForm({date:tdayStr(),grp:selGrp||"jarabes",prodId:first?.id||"",
+    setForm({date:tdayStr(),grp:selGrp||"jarabes",prodId:"",
       qty:1,unit:GRP[selGrp||"jarabes"].defUnit,notes:""});
     setModal(true);
   };
@@ -1132,11 +1213,9 @@ function ProduccionView({prodLogs,setProdLogs,products,showToast}){
             </FSelect>
           </Field>
           <Field label="Producto elaborado">
-            <FSelect value={form.prodId} onChange={f("prodId")}>
-              {products.filter(p=>p.grp===form.grp).map(p=>(
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </FSelect>
+            <ProductPicker products={products} value={form.prodId} grp={form.grp}
+              onChange={id=>setForm(prev=>({...prev,prodId:id}))}
+              onCreate={name=>createProductInline(setProducts,showToast,form.grp,name)}/>
           </Field>
           <FormRow>
             <Field label="Fecha" half><FInput type="date" value={form.date} onChange={f("date")}/></Field>
