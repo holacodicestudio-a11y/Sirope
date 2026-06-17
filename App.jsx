@@ -3,6 +3,11 @@ import * as XLSX from "xlsx";
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import { db, auth, FIREBASE_LISTO } from "./firebase";
+import {
+  collection, doc, onSnapshot, writeBatch, getDoc, setDoc,
+} from "firebase/firestore";
+import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
@@ -64,20 +69,51 @@ const SIDEBAR_W = 220;
 const BRAND     = "#FF6B35";
 
 /* ══════════════════════════════════════════════
-   PERSISTENCIA EN EL TELÉFONO (localStorage)
-   Los datos sobreviven al cerrar la app.
+   SINCRONIZACIÓN CON LA NUBE (Firebase Firestore)
+   - Tiempo real entre los 10 usuarios
+   - Funciona offline y sincroniza al volver el internet
+   La función "set" acepta el mismo estilo que useState
+   (set(prev => ...)), así las pantallas no cambian.
 ══════════════════════════════════════════════ */
-function usePersist(key, initial){
-  const [val,setVal]=useState(()=>{
-    try{
-      const raw=localStorage.getItem(key);
-      return raw!=null ? JSON.parse(raw) : initial;
-    }catch{ return initial; }
-  });
+function useCloud(name){
+  const [items,setItems]=useState([]);
+  const ref=useRef([]);
+
   useEffect(()=>{
-    try{ localStorage.setItem(key, JSON.stringify(val)); }catch{}
-  },[key,val]);
-  return [val,setVal];
+    if(!FIREBASE_LISTO) return;
+    const unsub=onSnapshot(collection(db,name),
+      snap=>{
+        const arr=snap.docs.map(d=>({id:d.id,...d.data()}));
+        ref.current=arr;
+        setItems(arr);
+      },
+      err=>console.error("Firestore("+name+")",err)
+    );
+    return ()=>unsub();
+  },[name]);
+
+  const set=(updater)=>{
+    const prev=ref.current;
+    const next=typeof updater==="function"?updater(prev):updater;
+    const prevMap=new Map(prev.map(i=>[i.id,i]));
+    const nextMap=new Map(next.map(i=>[i.id,i]));
+    const batch=writeBatch(db);
+    // crear / actualizar lo que cambió
+    next.forEach(it=>{
+      const old=prevMap.get(it.id);
+      if(!old || JSON.stringify(old)!==JSON.stringify(it)){
+        const {id,...data}=it;
+        batch.set(doc(db,name,String(id)),data);
+      }
+    });
+    // borrar lo que ya no está
+    prev.forEach(it=>{ if(!nextMap.has(it.id)) batch.delete(doc(db,name,String(it.id))); });
+    batch.commit().catch(e=>console.error("sync "+name,e));
+    // actualización optimista: la pantalla reacciona al instante
+    ref.current=next; setItems(next);
+  };
+
+  return [items,set];
 }
 
 /* ══════════════════════════════════════════════
@@ -1375,19 +1411,97 @@ const PROV_FIELDS=[
   {key:"address", label:"Dirección", half:true},
 ];
 
+/* ══════════════════════════════════════════════
+   PANTALLAS DE NUBE
+══════════════════════════════════════════════ */
+function CenterBox({children}){
+  return(
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"#0D1629",fontFamily:"system-ui,-apple-system,sans-serif",padding:24}}>
+      <div style={{background:"#fff",borderRadius:18,padding:"32px 26px",maxWidth:420,
+        textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.4)"}}>{children}</div>
+    </div>
+  );
+}
+
+function SetupScreen(){
+  return(
+    <CenterBox>
+      <div style={{fontSize:34,marginBottom:8}}>☁️</div>
+      <h2 style={{margin:"0 0 8px",fontSize:19,fontWeight:900,color:"#1E293B"}}>Falta conectar la nube</h2>
+      <p style={{margin:"0 0 14px",fontSize:13,color:"#475569",lineHeight:1.5}}>
+        Abre el archivo <b>firebase.js</b> y pega los datos de tu proyecto de Firebase
+        donde dice <code>PEGA_AQUI_…</code>. Sigue la guía
+        <b> CONECTAR-LA-NUBE.md</b> paso a paso.
+      </p>
+      <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Es un solo archivo. Toma ~10 minutos.</p>
+    </CenterBox>
+  );
+}
+
+function LoadingScreen({error}){
+  return(
+    <CenterBox>
+      {error ? (
+        <>
+          <div style={{fontSize:32,marginBottom:8}}>⚠️</div>
+          <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:900,color:"#DC2626"}}>No se pudo conectar</h2>
+          <p style={{margin:0,fontSize:12,color:"#475569",lineHeight:1.5}}>{error}</p>
+          <p style={{margin:"12px 0 0",fontSize:11,color:"#94A3B8"}}>
+            Revisa que activaste <b>Authentication → Anónimo</b> en Firebase.
+          </p>
+        </>
+      ) : (
+        <>
+          <div style={{width:38,height:38,border:"4px solid #E2E8F0",borderTopColor:BRAND,
+            borderRadius:"50%",margin:"0 auto 14px",animation:"spin 1s linear infinite"}}/>
+          <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+          <p style={{margin:0,fontSize:14,fontWeight:700,color:"#1E293B"}}>Conectando a la nube…</p>
+          <p style={{margin:"4px 0 0",fontSize:11,color:"#94A3B8"}}>Sincronizando inventario</p>
+        </>
+      )}
+    </CenterBox>
+  );
+}
+
 export default function SiroperApp(){
   const [view,      setView]      = useState("dashboard");
-  const [products,  setProducts]  = usePersist("sirope_products",  PRODS_INIT);
-  const [entries,   setEntries]   = usePersist("sirope_entries",   ENTS_INIT);
-  const [exits,     setExits]     = usePersist("sirope_exits",     SALS_INIT);
-  const [clients,   setClients]   = usePersist("sirope_clients",   CLIENTS_INIT);
-  const [suppliers, setSuppliers] = usePersist("sirope_suppliers", PROVS_INIT);
-  const [prodLogs,  setProdLogs]  = usePersist("sirope_prodlogs",  PROD_INIT);
+  const [products,  setProducts]  = useCloud("products");
+  const [entries,   setEntries]   = useCloud("entries");
+  const [exits,     setExits]     = useCloud("exits");
+  const [clients,   setClients]   = useCloud("clients");
+  const [suppliers, setSuppliers] = useCloud("suppliers");
+  const [prodLogs,  setProdLogs]  = useCloud("prodlogs");
   const [toast,     setToast]     = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState(null);
   const [isMobile,  setIsMobile]  = useState(
     typeof window!=="undefined" && window.innerWidth<820);
   const [sideOpen,  setSideOpen]  = useState(
     !(typeof window!=="undefined" && window.innerWidth<820));
+
+  // Inicia sesión anónima en la nube y siembra el catálogo la primera vez
+  useEffect(()=>{
+    if(!FIREBASE_LISTO) return;
+    const unsub=onAuthStateChanged(auth,async(user)=>{
+      if(user){
+        setAuthReady(true);
+        // Sembrar catálogo de productos solo una vez
+        try{
+          const metaRef=doc(db,"meta","app");
+          const metaSnap=await getDoc(metaRef);
+          if(!(metaSnap.exists() && metaSnap.data().seeded)){
+            const batch=writeBatch(db);
+            PRODS_INIT.forEach(p=>{ const {id,...d}=p; batch.set(doc(db,"products",String(id)),d); });
+            batch.set(metaRef,{seeded:true,seededAt:Date.now()});
+            await batch.commit();
+          }
+        }catch(e){ console.error("seed",e); }
+      }
+    });
+    signInAnonymously(auth).catch(e=>setAuthError(e.message||String(e)));
+    return ()=>unsub();
+  },[]);
 
   // Track viewport so the sidebar behaves as a drawer on phones
   useEffect(()=>{
@@ -1400,11 +1514,26 @@ export default function SiroperApp(){
     return ()=>window.removeEventListener("resize",onResize);
   },[]);
 
+  // Estado de conexión (para mostrar online / sin conexión)
+  const [online,setOnline]=useState(
+    typeof navigator!=="undefined" ? navigator.onLine : true);
+  useEffect(()=>{
+    const up=()=>setOnline(true), down=()=>setOnline(false);
+    window.addEventListener("online",up);
+    window.addEventListener("offline",down);
+    return ()=>{ window.removeEventListener("online",up); window.removeEventListener("offline",down); };
+  },[]);
+
   const go=(id)=>{ setView(id); if(isMobile) setSideOpen(false); };
 
   const showToast=(msg,type="success")=>{
     setToast({msg,type});setTimeout(()=>setToast(null),3500);
   };
+
+  // Pantalla de aviso si Firebase aún no está configurado
+  if(!FIREBASE_LISTO) return <SetupScreen/>;
+  // Pantalla de carga mientras conecta a la nube
+  if(!authReady) return <LoadingScreen error={authError}/>;
 
   const alerts=products.filter(p=>p.stock<p.min).length;
   const props={products,setProducts,entries,setEntries,exits,setExits,
@@ -1502,10 +1631,11 @@ export default function SiroperApp(){
         {/* Footer */}
         <div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,.05)",
           display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          <div style={{width:7,height:7,borderRadius:99,background:"#059669",
-            boxShadow:"0 0 6px #059669",flexShrink:0}}/>
-          {(sideOpen||isMobile)&&<span style={{fontSize:10,color:"rgba(255,255,255,.3)",fontWeight:700}}>
-            Online · {products.length} productos
+          <div style={{width:7,height:7,borderRadius:99,
+            background:online?"#059669":"#F59E0B",
+            boxShadow:`0 0 6px ${online?"#059669":"#F59E0B"}`,flexShrink:0}}/>
+          {(sideOpen||isMobile)&&<span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontWeight:700}}>
+            {online ? `En línea · ${products.length} productos` : "Sin conexión · se sincronizará"}
           </span>}
         </div>
       </aside>
