@@ -30,6 +30,7 @@ const app = initializeApp(firebaseConfig);
 // y sincroniza sola cuando regresa la conexión.
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache(),
+  experimentalForceLongPolling: true,
 });
 
 export const auth = getAuth(app);
