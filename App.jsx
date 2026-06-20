@@ -12,7 +12,7 @@ import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
   Plus, Search, Edit2, Trash2, X, AlertTriangle,
-  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp, Boxes, Minus
+  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp, Boxes, Minus, Activity, Clock
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════
@@ -317,6 +317,34 @@ const PROD_INIT  = [];
 ══════════════════════════════════════════════ */
 const fmt  = n => `$${Number(n).toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtD = d => { try{ return new Date(d+"T12:00:00").toLocaleDateString("es-MX"); }catch{ return d; }};
+
+// ── Log de uso de la app (sesiones) ──
+function deviceLabel(){
+  const ua=(typeof navigator!=="undefined"&&navigator.userAgent)||"";
+  if(/Android/i.test(ua))return "Android";
+  if(/iPhone|iPad|iPod/i.test(ua))return "iPhone/iPad";
+  if(/Windows/i.test(ua))return "Windows";
+  if(/Macintosh|Mac OS/i.test(ua))return "Mac";
+  if(/Linux/i.test(ua))return "Linux";
+  return "Dispositivo";
+}
+async function writeSession(id,data){
+  if(!FIREBASE_LISTO||!id) return;
+  try{ await setDoc(doc(db,"sessions",String(id)),data,{merge:true}); }catch(e){ console.error("session",e); }
+}
+const fmtDur = min => {
+  min=Math.max(0,Math.round(min));
+  if(min<1) return "—";
+  if(min<60) return `${min} min`;
+  const h=Math.floor(min/60), m=min%60;
+  return m?`${h} h ${m} min`:`${h} h`;
+};
+const fmtDT = t => {
+  if(!t) return "—";
+  try{ const d=new Date(t), p=n=>String(n).padStart(2,"0");
+    return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }catch{ return "—"; }
+};
 const tdayStr = () => new Date().toISOString().split("T")[0];
 const stockSt = (s,m) => {
   if(s===0)  return{label:"Sin stock",color:"#DC2626",bg:"#FEE2E2"};
@@ -1400,6 +1428,75 @@ function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
 }
 
 /* ══════════════════════════════════════════════
+   USUARIOS / LOG DE USO (solo Admin)
+══════════════════════════════════════════════ */
+function UsuariosView({showToast}){
+  const [sessions,setSessions]=useCloud("sessions");
+  const [confirm,setConfirm]=useState(false);
+  const now=Date.now();
+
+  const rows=useMemo(()=>(sessions||[]).map(s=>{
+    const login=s.loginAt?new Date(s.loginAt).getTime():0;
+    const seen =s.lastSeen?new Date(s.lastSeen).getTime():login;
+    const end  =s.logoutAt?new Date(s.logoutAt).getTime():seen;
+    const durMin=login?Math.max(0,(end-login)/60000):0;
+    const active=!s.logoutAt && s.lastSeen && (now-seen<5*60000);
+    return {...s,login,seen,end,durMin,active};
+  }).sort((a,b)=>b.login-a.login),[sessions,now]);
+
+  const todayStr=new Date().toDateString();
+  const isToday=t=>t&&new Date(t).toDateString()===todayStr;
+  const sesToday=rows.filter(r=>isToday(r.loginAt));
+  const usersToday=new Set(sesToday.map(r=>r.email)).size;
+  const minsToday=sesToday.reduce((s,r)=>s+r.durMin,0);
+  const activeNow=rows.filter(r=>r.active).length;
+
+  const clearAll=()=>{ setSessions(()=>[]); showToast("Registros borrados"); setConfirm(false); };
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+        <div>
+          <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>Usuarios y uso</h2>
+          <p style={{margin:"2px 0 0",fontSize:11,color:"#94A3B8"}}>Quién entra, desde dónde y cuánto tiempo</p>
+        </div>
+        {rows.length>0&&<Btn variant="secondary" onClick={()=>setConfirm(true)}><Trash2 size={13}/> Limpiar</Btn>}
+      </div>
+
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        <StatCard label="Activos ahora" value={activeNow} sub="en los últimos 5 min" icon={<Activity size={18}/>} color="#059669"/>
+        <StatCard label="Usuarios hoy" value={usersToday} sub="entraron hoy" icon={<Users size={18}/>} color={BRAND}/>
+        <StatCard label="Tiempo de uso hoy" value={fmtDur(minsToday)} sub="sumado entre todos" icon={<Clock size={18}/>} color="#6D28D9"/>
+        <StatCard label="Sesiones hoy" value={sesToday.length} sub="aperturas de app" icon={<TrendingUp size={18}/>} color="#0369A1"/>
+      </div>
+
+      <Card>
+        <Tbl cols={["Usuario","App","Dispositivo","Entró","Última actividad","Duración","Estado"]}>
+          {rows.length===0&&<EmptyRow cols={7} msg="Aún no hay registros de uso"/>}
+          {rows.slice(0,300).map(r=>(
+            <Tr key={r.id}>
+              <Td style={{fontWeight:700}}>{r.email||"—"}</Td>
+              <Td style={{fontSize:12,color:"#64748B"}}>{r.app||(r.role==="jefe"?"Administración":"Producción")}</Td>
+              <Td style={{fontSize:12,color:"#64748B"}}>{r.device||"—"}</Td>
+              <Td style={{fontSize:12,color:"#64748B",whiteSpace:"nowrap"}}>{fmtDT(r.loginAt)}</Td>
+              <Td style={{fontSize:12,color:"#64748B",whiteSpace:"nowrap"}}>{fmtDT(r.lastSeen)}</Td>
+              <Td style={{fontWeight:700}}>{fmtDur(r.durMin)}</Td>
+              <Td>
+                {r.active
+                  ? <span style={{fontSize:10,fontWeight:800,color:"#059669",background:"#D1FAE5",borderRadius:6,padding:"2px 8px"}}>● Activo</span>
+                  : <span style={{fontSize:10,fontWeight:700,color:"#94A3B8"}}>{r.logoutAt?"Cerró sesión":"Inactivo"}</span>}
+              </Td>
+            </Tr>
+          ))}
+        </Tbl>
+      </Card>
+
+      {confirm&&<Confirm msg="¿Borrar todo el historial de uso? Esto no se puede deshacer." onYes={clearAll} onNo={()=>setConfirm(false)}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    GRUPOS VIEW (gestión de grupos/categorías — solo Admin)
 ══════════════════════════════════════════════ */
 function GruposView({cloudGroups,setCloudGroups,products,insumos,grpVersion,showToast}){
@@ -2020,6 +2117,7 @@ const NAV=[
   {id:"produccion", label:"Producción",  icon:<FlaskConical size={16}/>},
   {id:"grupos",     label:"Grupos",      icon:<Boxes size={16}/>},
   {id:"precios",    label:"Precios",     icon:<Tag size={16}/>},
+  {id:"usuarios",   label:"Usuarios",    icon:<Activity size={16}/>},
   {id:"reportes",   label:"Reportes",    icon:<FileSpreadsheet size={16}/>},
 ];
 
@@ -2188,6 +2286,7 @@ export default function SiroperApp(){
   const [user,        setUser]        = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [showWarning, setShowWarning] = useState(false);
+  const sessionRef = useRef(null);
   const [isMobile,  setIsMobile]  = useState(
     typeof window!=="undefined" && window.innerWidth<820);
   const [sideOpen,  setSideOpen]  = useState(
@@ -2201,6 +2300,13 @@ export default function SiroperApp(){
       setUser(u);
       setAuthChecked(true);
       CURRENT_USER_EMAIL = u ? (u.email||"") : "";
+      if(u){
+        const sid=nid("ses");
+        sessionRef.current=sid;
+        const t=new Date().toISOString();
+        writeSession(sid,{email:u.email||"",role:ROLE,app:APP_NAME,
+          device:deviceLabel(),loginAt:t,lastSeen:t,logoutAt:null});
+      }
       if(u && IS_BOSS){
         try{
           const snap=await getDocs(collection(db,"products"));
@@ -2215,7 +2321,16 @@ export default function SiroperApp(){
     return ()=>unsub();
   },[]);
 
-  // Track viewport so the sidebar behaves as a drawer on phones
+  // Heartbeat: marca "última actividad" mientras la app está abierta.
+  useEffect(()=>{
+    if(!user) return;
+    const beat=()=>{ if(sessionRef.current) writeSession(sessionRef.current,{lastSeen:new Date().toISOString()}); };
+    const iv=setInterval(beat,60000);
+    const onHide=()=>{ if(document.visibilityState==="hidden") beat(); };
+    document.addEventListener("visibilitychange",onHide);
+    window.addEventListener("beforeunload",beat);
+    return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange",onHide); window.removeEventListener("beforeunload",beat); };
+  },[user]);
   useEffect(()=>{
     const onResize=()=>{
       const mobile=window.innerWidth<820;
@@ -2309,6 +2424,7 @@ export default function SiroperApp(){
       case "produccion":  return <ProduccionView {...props}/>;
       case "grupos":      return <GruposView {...props}/>;
       case "precios":     return <PreciosView {...props}/>;
+      case "usuarios":    return <UsuariosView showToast={showToast}/>;
       case "reportes":    return <ReportesView {...props}/>;
       default: return null;
     }
@@ -2321,7 +2437,14 @@ export default function SiroperApp(){
     : NAV.filter(n=>PRODUCER_VIEWS.includes(n.id))
          .map(n=>n.id==="inventario"?{...n,label:"Stock"}:n);
 
-  const doLogout=async()=>{ try{ await signOut(auth); }catch(e){} };
+  const doLogout=async()=>{
+    if(sessionRef.current){
+      const t=new Date().toISOString();
+      await writeSession(sessionRef.current,{logoutAt:t,lastSeen:t});
+      sessionRef.current=null;
+    }
+    try{ await signOut(auth); }catch(e){}
+  };
 
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"system-ui,-apple-system,sans-serif",
