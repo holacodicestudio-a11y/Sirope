@@ -13,6 +13,7 @@
     "@capacitor/filesystem": "^6.0.1",
     "@capacitor/preferences": "^6.0.4",
     "@capacitor/share": "^6.0.2",
+    "@capacitor/local-notifications": "^6.1.0",
     "firebase": "^10.13.0",
     "jsdom": "^29.1.1",
     "lucide-react": "^0.383.0",
