@@ -83,6 +83,49 @@ const INSUMO_GRP = {
   otros:        { label:"OTROS",                color:"#475569", bg:"#F1F5F9", emoji:"📋", defUnit:"pzas" },
 };
 const INSUMO_UNITS = ["kg","g","L","ml","pzas","caja","rollo","saco","tambo"];
+
+/* ══════════════════════════════════════════════
+   GRUPOS DINÁMICOS
+   GRP e INSUMO_GRP son MUTABLES: arrancan con los valores por defecto
+   y se reconstruyen sumando los grupos personalizados de la nube.
+══════════════════════════════════════════════ */
+const GRP_DEFAULTS    = JSON.parse(JSON.stringify(GRP));
+const INSUMO_DEFAULTS = JSON.parse(JSON.stringify(INSUMO_GRP));
+
+// Cada grupo de nube: {id,key,label,emoji,color,bg,defUnit,scope:"producto"|"insumo"|"ambos"}
+function rebuildGroups(cloud){
+  Object.keys(GRP).forEach(k=>delete GRP[k]);
+  Object.keys(INSUMO_GRP).forEach(k=>delete INSUMO_GRP[k]);
+  Object.assign(GRP, JSON.parse(JSON.stringify(GRP_DEFAULTS)));
+  Object.assign(INSUMO_GRP, JSON.parse(JSON.stringify(INSUMO_DEFAULTS)));
+  (cloud||[]).forEach(g=>{
+    if(!g||!g.key) return;
+    const base={label:g.key,emoji:"📦",color:"#475569",bg:"#F1F5F9",defUnit:"pzas"};
+    const e={};
+    ["label","emoji","color","bg","defUnit"].forEach(f=>{ if(g[f]!=null&&g[f]!=="") e[f]=g[f]; });
+    const sc=g.scope||"producto";
+    if(sc==="producto"||sc==="ambos") GRP[g.key]={...(GRP[g.key]||base),...e};
+    if(sc==="insumo"||sc==="ambos")   INSUMO_GRP[g.key]={...(INSUMO_GRP[g.key]||base),...e};
+  });
+}
+
+const isDefaultGroup = key =>
+  Object.prototype.hasOwnProperty.call(GRP_DEFAULTS,key) ||
+  Object.prototype.hasOwnProperty.call(INSUMO_DEFAULTS,key);
+
+const GROUP_SWATCHES=[
+  {color:"#B45309",bg:"#FEF3C7"},{color:"#9D174D",bg:"#FCE7F3"},{color:"#6D28D9",bg:"#EDE9FE"},
+  {color:"#0369A1",bg:"#E0F2FE"},{color:"#059669",bg:"#D1FAE5"},{color:"#B91C1C",bg:"#FEE2E2"},
+  {color:"#C2410C",bg:"#FFF7ED"},{color:"#0E7490",bg:"#CFFAFE"},{color:"#475569",bg:"#F1F5F9"},
+];
+
+function slugifyGroup(label){
+  const base=(label||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"grupo";
+  let key=base,n=1;
+  while(GRP[key]||INSUMO_GRP[key]) key=base+"_"+(++n);
+  return key;
+}
 const SIDEBAR_W = 220;
 
 /* Rol de la app — se fija al construir cada APK (VITE_ROLE):
@@ -1364,6 +1407,142 @@ function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
 }
 
 /* ══════════════════════════════════════════════
+   GRUPOS VIEW (gestión de grupos/categorías — solo Admin)
+══════════════════════════════════════════════ */
+function GruposView({cloudGroups,setCloudGroups,products,insumos,grpVersion,showToast}){
+  const [modal,setModal]=useState(false);
+  const [editKey,setEditKey]=useState(null);
+  const [confirm,setConfirm]=useState(null);
+  const [form,setForm]=useState({});
+
+  const usage=key=>products.filter(p=>p.grp===key).length+insumos.filter(i=>i.grp===key).length;
+
+  const openAdd=()=>{ setEditKey(null); setForm({label:"",emoji:"📦",defUnit:"pzas",scope:"producto",swatch:0}); setModal(true); };
+  const openEdit=key=>{
+    const g=GRP[key]||INSUMO_GRP[key]||{};
+    const cloud=cloudGroups.find(c=>c.key===key);
+    const scope=cloud?.scope||(GRP_DEFAULTS[key]?"producto":(INSUMO_DEFAULTS[key]?"insumo":"producto"));
+    let sw=GROUP_SWATCHES.findIndex(s=>s.color===g.color); if(sw<0) sw=0;
+    setForm({label:g.label||"",emoji:g.emoji||"📦",defUnit:g.defUnit||"pzas",scope,swatch:sw});
+    setEditKey(key); setModal(true);
+  };
+  const save=()=>{
+    const label=(form.label||"").trim();
+    if(!label) return showToast("Ponle un nombre al grupo","error");
+    const sw=GROUP_SWATCHES[form.swatch]||GROUP_SWATCHES[0];
+    const data={label,emoji:(form.emoji||"📦").trim()||"📦",color:sw.color,bg:sw.bg,
+      defUnit:form.defUnit||"pzas",scope:form.scope||"producto"};
+    if(editKey){
+      const existing=cloudGroups.find(c=>c.key===editKey);
+      if(existing) setCloudGroups(prev=>prev.map(c=>c.id===existing.id?{...c,...data,key:editKey}:c));
+      else setCloudGroups(prev=>[...prev,{id:nid("grp"),key:editKey,...data}]);
+      showToast("Grupo actualizado ✓");
+    }else{
+      const key=slugifyGroup(label);
+      setCloudGroups(prev=>[...prev,{id:nid("grp"),key,...data}]);
+      showToast("Grupo creado ✓");
+    }
+    setModal(false); setEditKey(null);
+  };
+  const del=key=>{
+    const existing=cloudGroups.find(c=>c.key===key);
+    if(existing) setCloudGroups(prev=>prev.filter(c=>c.id!==existing.id));
+    showToast("Grupo eliminado"); setConfirm(null);
+  };
+
+  const Section=({title,map,area})=>(
+    <Card style={{marginBottom:16}}>
+      <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",fontWeight:800,fontSize:13,color:"#1E293B"}}>{title}</div>
+      <Tbl cols={["","Grupo","En uso","Tipo",""]}>
+        {Object.entries(map).map(([k,g])=>{
+          const def=isDefaultGroup(k);
+          const u=usage(k);
+          return(
+            <Tr key={k+grpVersion}>
+              <Td style={{width:34,fontSize:18,textAlign:"center"}}>{g.emoji}</Td>
+              <Td><span style={{display:"inline-flex",alignItems:"center",gap:6,background:g.bg,color:g.color,
+                borderRadius:6,padding:"3px 9px",fontSize:11,fontWeight:800}}>{g.label}</span></Td>
+              <Td style={{color:"#64748B",fontSize:12}}>{u} ítem{u===1?"":"s"}</Td>
+              <Td style={{fontSize:10,fontWeight:800,color:def?"#94A3B8":BRAND}}>{def?"Predefinido":"Personalizado"}</Td>
+              <Td>
+                <div style={{display:"flex",gap:4}}>
+                  <Btn small variant="secondary" onClick={()=>openEdit(k)}><Edit2 size={11}/></Btn>
+                  {!def&&<Btn small variant="danger" onClick={()=>setConfirm(k)}><Trash2 size={11}/></Btn>}
+                </div>
+              </Td>
+            </Tr>
+          );
+        })}
+      </Tbl>
+    </Card>
+  );
+
+  const confItem=confirm?{u:usage(confirm)}:null;
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+        <div>
+          <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>Grupos y categorías</h2>
+          <p style={{margin:"2px 0 0",fontSize:11,color:"#94A3B8"}}>Organiza tus productos e insumos</p>
+        </div>
+        <Btn onClick={openAdd}><Plus size={14}/> Nuevo grupo</Btn>
+      </div>
+
+      <Section title="🧴 Grupos de Productos" map={GRP} area="producto"/>
+      <Section title="📦 Categorías de Insumos" map={INSUMO_GRP} area="insumo"/>
+
+      {modal&&(
+        <Modal title={editKey?"Editar grupo":"Nuevo grupo"} onClose={()=>{setModal(false);setEditKey(null);}}>
+          <FormRow>
+            <Field label="Nombre" half><FInput value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} placeholder="Ej. Etiquetas premium"/></Field>
+            <Field label="Emoji" half><FInput value={form.emoji} onChange={e=>setForm(p=>({...p,emoji:e.target.value}))} placeholder="📦"/></Field>
+          </FormRow>
+          <FormRow>
+            <Field label="¿Para qué sirve?" half>
+              <FSelect value={form.scope} onChange={e=>setForm(p=>({...p,scope:e.target.value}))}>
+                <option value="producto">Productos</option>
+                <option value="insumo">Insumos</option>
+                <option value="ambos">Ambos</option>
+              </FSelect>
+            </Field>
+            <Field label="Unidad por defecto" half>
+              <FSelect value={form.defUnit} onChange={e=>setForm(p=>({...p,defUnit:e.target.value}))}>
+                {[...new Set([...UNITS,...INSUMO_UNITS])].map(u=><option key={u} value={u}>{u}</option>)}
+              </FSelect>
+            </Field>
+          </FormRow>
+          <Field label="Color">
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {GROUP_SWATCHES.map((s,i)=>(
+                <button key={i} type="button" onClick={()=>setForm(p=>({...p,swatch:i}))}
+                  style={{width:34,height:34,borderRadius:9,background:s.bg,cursor:"pointer",
+                    border:form.swatch===i?`3px solid ${s.color}`:"2px solid #E2E8F0",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <span style={{width:14,height:14,borderRadius:99,background:s.color}}/>
+                </button>
+              ))}
+            </div>
+          </Field>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
+            <Btn variant="secondary" onClick={()=>{setModal(false);setEditKey(null);}}>Cancelar</Btn>
+            <Btn onClick={save}><Boxes size={13}/> {editKey?"Guardar":"Crear"}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {confirm&&(
+        <Confirm
+          msg={confItem.u>0
+            ? `Este grupo tiene ${confItem.u} ítem(s) asignados. Si lo borras, quedarán sin grupo. ¿Continuar?`
+            : "¿Eliminar este grupo?"}
+          onYes={()=>del(confirm)} onNo={()=>setConfirm(null)}/>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    INSUMOS VIEW (materia prima)
    Admin: alta/edición/borrado + entrada/consumo.
    Producción: solo entrada y consumo (sin precios).
@@ -1829,6 +2008,7 @@ const NAV=[
   {id:"clientes",   label:"Clientes",    icon:<Users size={16}/>},
   {id:"proveedores",label:"Proveedores", icon:<Truck size={16}/>},
   {id:"produccion", label:"Producción",  icon:<FlaskConical size={16}/>},
+  {id:"grupos",     label:"Grupos",      icon:<Boxes size={16}/>},
   {id:"precios",    label:"Precios",     icon:<Tag size={16}/>},
   {id:"reportes",   label:"Reportes",    icon:<FileSpreadsheet size={16}/>},
 ];
@@ -1991,6 +2171,9 @@ export default function SiroperApp(){
   const [suppliers, setSuppliers] = useCloud("suppliers");
   const [prodLogs,  setProdLogs]  = useCloud("prodlogs");
   const [insumos,   setInsumos]   = useCloud("insumos");
+  const [cloudGroups,setCloudGroups]=useCloud("groups");
+  const [grpVersion, setGrpVersion]=useState(0);
+  useEffect(()=>{ rebuildGroups(cloudGroups); setGrpVersion(v=>v+1); },[cloudGroups]);
   const [toast,     setToast]     = useState(null);
   const [user,        setUser]        = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -2102,7 +2285,7 @@ export default function SiroperApp(){
   const alerts=products.filter(p=>p.stock<p.min).length;
   const props={products,setProducts,entries,setEntries,exits,setExits,
     clients,setClients,suppliers,setSuppliers,prodLogs,setProdLogs,
-    insumos,setInsumos,user,showToast};
+    insumos,setInsumos,cloudGroups,setCloudGroups,grpVersion,user,showToast};
 
   const renderView=()=>{
     switch(view){
@@ -2114,13 +2297,14 @@ export default function SiroperApp(){
       case "clientes":    return <CRUDView title="Clientes"    items={clients}   setItems={setClients}   fields={CLI_FIELDS}  idKey="cli"  showToast={showToast}/>;
       case "proveedores": return <CRUDView title="Proveedores" items={suppliers} setItems={setSuppliers} fields={PROV_FIELDS} idKey="prov" showToast={showToast}/>;
       case "produccion":  return <ProduccionView {...props}/>;
+      case "grupos":      return <GruposView {...props}/>;
       case "precios":     return <PreciosView {...props}/>;
       case "reportes":    return <ReportesView {...props}/>;
       default: return null;
     }
   };
 
-  // Navegación según el rol. Producción solo ve Stock, Producción y Reportes.
+  // Navegación según el rol. Producción solo ve Stock, Insumos, Producción y Reportes.
   const PRODUCER_VIEWS=["inventario","insumos","produccion","reportes"];
   const navItems = IS_BOSS
     ? NAV
