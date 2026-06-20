@@ -12,7 +12,7 @@ import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
   Plus, Search, Edit2, Trash2, X, AlertTriangle,
-  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp
+  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp, Boxes
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════
@@ -66,7 +66,6 @@ const GRP = {
 
 const UNITS   = ["L","pzas","tambo","kg"];
 const SIDEBAR_W = 220;
-const BRAND     = "#FF6B35";
 
 /* Rol de la app — se fija al construir cada APK (VITE_ROLE):
      "jefe"      → app de administración: acceso total.
@@ -75,6 +74,26 @@ const BRAND     = "#FF6B35";
 const ROLE = (typeof __APP_ROLE__ !== "undefined" ? __APP_ROLE__ : "jefe");
 const IS_BOSS = ROLE === "jefe";
 let CURRENT_USER_EMAIL = "";
+
+/* Nombre y tema visual según el rol.
+   La app de Producción ("Producción Patrona") va en rosa. */
+const APP_NAME = IS_BOSS ? "Administración Sirope" : "Producción Sirope";
+const THEME = IS_BOSS ? {
+  brand:"#FF6B35",
+  sidebar:"#0D1629",
+  dark:"#0D1629",
+  appBg:"#F1F5F9",
+  accentSoft:"rgba(255,107,53,.14)",
+} : {
+  brand:"#DB2777",
+  sidebar:"linear-gradient(180deg,#9D174D 0%,#BE185D 55%,#DB2777 100%)",
+  dark:"#9D174D",
+  // Fondo: degradado rosa SOBRE una imagen opcional (fondo.jpg).
+  // Si pones un archivo public/fondo.jpg, se ve a través del rosa.
+  appBg:"linear-gradient(160deg,rgba(255,241,248,.90) 0%,rgba(252,231,243,.84) 45%,rgba(251,207,232,.92) 100%), url('./fondo.jpg') center / cover no-repeat",
+  accentSoft:"rgba(219,39,119,.18)",
+};
+const BRAND = THEME.brand;
 
 /* ══════════════════════════════════════════════
    SINCRONIZACIÓN CON LA NUBE (Firebase Firestore)
@@ -436,13 +455,8 @@ const GrpCard=({grpKey,grp,count,totalStock,selected,onClick})=>(
 /* ══════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════ */
-function Dashboard({products,entries,exits,setView}){
-  const alerts=products.filter(p=>p.stock<p.min);
-  const alertsShown=alerts.slice(0,12);
-  const totalVal=products.reduce((s,p)=>s+p.stock*p.cost,0);
-  const totalSales=exits.reduce((s,e)=>s+e.qty*e.price,0);
-  const byGrp={};
-  Object.keys(GRP).forEach(k=>{byGrp[k]=products.filter(p=>p.grp===k).length});
+function Dashboard({products,entries,exits,insumos=[],setView}){
+  const valorInsumos=insumos.reduce((s,i)=>s+(Number(i.stock)||0)*(Number(i.cost)||0),0);
 
   return(
     <div>
@@ -477,46 +491,9 @@ function Dashboard({products,entries,exits,setView}){
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:20}}>
         <StatCard label="Productos"   value={products.length} sub="en catálogo"
           icon={<Package size={18}/>} color={BRAND}/>
-        <StatCard label="Líneas"      value={Object.keys(GRP).length} sub="grupos activos"
-          icon={<TrendingUp size={18}/>} color="#6D28D9"/>
-        <StatCard label="Alertas"     value={alerts.length} sub="stock bajo"
-          icon={<AlertTriangle size={18}/>} color="#D97706"/>
-        <StatCard label="Ventas"      value={fmt(totalSales)} sub="acumulado"
-          icon={<RefreshCw size={18}/>} color="#059669"/>
+        <StatCard label="Valor de insumos" value={fmt(valorInsumos)} sub="invertido en materia prima"
+          icon={<Boxes size={18}/>} color="#6D28D9"/>
       </div>
-
-      {alerts.length>0&&(
-        <div style={{background:"#FFF7ED",border:"1.5px solid #FED7AA",borderRadius:14,
-          padding:16,marginBottom:20}}>
-          <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:800,color:"#C2410C",
-            display:"flex",alignItems:"center",gap:8}}>
-            <AlertTriangle size={15}/> Alertas de Stock ({alerts.length})
-          </h3>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
-            {alertsShown.map(p=>{
-              const s=stockSt(p.stock,p.min);
-              const g=GRP[p.grp];
-              return(
-                <div key={p.id} style={{background:"#fff",borderRadius:9,padding:"10px 13px",
-                  borderLeft:`4px solid ${s.color}`}}>
-                  <p style={{margin:"0 0 2px",fontWeight:800,fontSize:12}}>{p.name}</p>
-                  <p style={{margin:"0 0 5px",fontSize:11,color:s.color,fontWeight:700}}>
-                    {p.stock} {p.unit} / mín {p.min}
-                  </p>
-                  <GrpBadge grp={p.grp}/>
-                </div>
-              );
-            })}
-          </div>
-          {alerts.length>12&&(
-            <p onClick={()=>setView&&setView("inventario")}
-              style={{margin:"12px 0 0",fontSize:12,color:"#C2410C",fontWeight:700,
-                cursor:"pointer",textDecoration:"underline"}}>
-              + {alerts.length-12} productos más con stock bajo — ver en Inventario
-            </p>
-          )}
-        </div>
-      )}
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <Card style={{padding:16}}>
@@ -1546,7 +1523,7 @@ const PROV_FIELDS=[
 function CenterBox({children}){
   return(
     <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
-      background:"#0D1629",fontFamily:"system-ui,-apple-system,sans-serif",padding:24}}>
+      background:THEME.sidebar,fontFamily:"system-ui,-apple-system,sans-serif",padding:24}}>
       <div style={{background:"#fff",borderRadius:18,padding:"32px 26px",maxWidth:420,
         textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.4)"}}>{children}</div>
     </div>
@@ -1612,13 +1589,13 @@ function LoginScreen(){
   };
   return(
     <CenterBox>
-      <div style={{width:46,height:46,background:"#0D1629",borderRadius:13,margin:"0 auto 14px",
-        display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 0 18px ${BRAND}55`}}>
+      <div style={{width:46,height:46,background:THEME.dark,borderRadius:13,margin:"0 auto 14px",
+        display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 0 18px ${BRAND}66`}}>
         <span style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:900,
-          fontSize:24,color:"#fff"}}>S</span>
+          fontSize:24,color:"#fff"}}>{IS_BOSS?"S":"P"}</span>
       </div>
       <h2 style={{margin:"0 0 2px",fontSize:19,fontWeight:900,color:"#1E293B"}}>
-        Sirope {IS_BOSS?"Admin":"Producción"}
+        {IS_BOSS ? "Administración Sirope" : "Producción Sirope"}
       </h2>
       <p style={{margin:"0 0 18px",fontSize:12,color:"#94A3B8"}}>Inicia sesión para continuar</p>
       <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Correo"
@@ -1638,6 +1615,42 @@ function LoginScreen(){
   );
 }
 
+function WarningModal({onAccept}){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(13,22,41,.78)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:22,
+      fontFamily:"system-ui,-apple-system,sans-serif"}}>
+      <div style={{background:"#fff",borderRadius:18,padding:"26px 24px",maxWidth:440,
+        boxShadow:"0 20px 60px rgba(0,0,0,.45)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:15}}>
+          <div style={{width:40,height:40,borderRadius:11,background:`${BRAND}1A`,flexShrink:0,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <AlertTriangle size={21} style={{color:BRAND}}/>
+          </div>
+          <h2 style={{margin:0,fontSize:18,fontWeight:900,color:"#1E293B"}}>Uso responsable</h2>
+        </div>
+        <p style={{margin:"0 0 11px",fontSize:13.5,lineHeight:1.6,color:"#374151"}}>
+          Esta aplicación refleja el inventario y la operación real de la empresa. Su buen
+          funcionamiento depende de que <b>cada registro sea verdadero y se haga con honestidad</b>.
+        </p>
+        <p style={{margin:"0 0 11px",fontSize:13.5,lineHeight:1.6,color:"#374151"}}>
+          Las entradas, salidas, producción e insumos que registres deben corresponder
+          <b> siempre a movimientos reales</b>. Cualquier dato falso, alterado o hecho fuera de
+          lo establecido puede causar errores en el inventario, decisiones equivocadas y un mal
+          funcionamiento del negocio.
+        </p>
+        <p style={{margin:"0 0 18px",fontSize:13.5,lineHeight:1.6,color:"#374151"}}>
+          Al continuar, te comprometes a usar la aplicación de forma
+          <b> correcta, honesta y responsable</b>.
+        </p>
+        <Btn onClick={onAccept} style={{width:"100%",justifyContent:"center"}}>
+          Entiendo y acepto
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 export default function SiroperApp(){
   const [view,      setView]      = useState(IS_BOSS ? "dashboard" : "inventario");
   const [products,  setProducts]  = useCloud("products");
@@ -1646,9 +1659,11 @@ export default function SiroperApp(){
   const [clients,   setClients]   = useCloud("clients");
   const [suppliers, setSuppliers] = useCloud("suppliers");
   const [prodLogs,  setProdLogs]  = useCloud("prodlogs");
+  const [insumos,   setInsumos]   = useCloud("insumos");
   const [toast,     setToast]     = useState(null);
   const [user,        setUser]        = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
   const [isMobile,  setIsMobile]  = useState(
     typeof window!=="undefined" && window.innerWidth<820);
   const [sideOpen,  setSideOpen]  = useState(
@@ -1697,6 +1712,49 @@ export default function SiroperApp(){
     return ()=>{ window.removeEventListener("online",up); window.removeEventListener("offline",down); };
   },[]);
 
+  // Aviso de uso responsable — una sola vez por usuario, en su primer ingreso.
+  const warnKey = user ? ("avisoOK_"+(user.uid||user.email||"u")) : null;
+  useEffect(()=>{
+    if(!user) return;
+    (async()=>{
+      try{
+        const { Preferences } = await import("@capacitor/preferences");
+        const { value } = await Preferences.get({ key:warnKey });
+        if(!value) setShowWarning(true);
+      }catch(e){ setShowWarning(true); }
+    })();
+  },[user]);
+  const acceptWarning=async()=>{
+    setShowWarning(false);
+    try{
+      const { Preferences } = await import("@capacitor/preferences");
+      await Preferences.set({ key:warnKey, value:"1" });
+    }catch(e){}
+  };
+
+  // Notificación diaria a las 6:00 AM (solo app de Producción).
+  // "Buongiorno, principessa!" — al estilo de La vida es bella.
+  useEffect(()=>{
+    if(IS_BOSS || !user) return;
+    (async()=>{
+      try{
+        if(!Capacitor.isNativePlatform?.()) return;
+        const { LocalNotifications } = await import("@capacitor/local-notifications");
+        const perm = await LocalNotifications.requestPermissions();
+        if(perm.display !== "granted") return;
+        await LocalNotifications.cancel({ notifications:[{id:600}] }).catch(()=>{});
+        await LocalNotifications.schedule({
+          notifications:[{
+            id:600,
+            title:"Buongiorno, principessa!",
+            body:"",
+            schedule:{ on:{ hour:6, minute:0 }, allowWhileIdle:true },
+          }],
+        });
+      }catch(e){ console.error("notif",e); }
+    })();
+  },[user]);
+
   const go=(id)=>{ setView(id); if(isMobile) setSideOpen(false); };
 
   const showToast=(msg,type="success")=>{
@@ -1712,7 +1770,8 @@ export default function SiroperApp(){
 
   const alerts=products.filter(p=>p.stock<p.min).length;
   const props={products,setProducts,entries,setEntries,exits,setExits,
-    clients,setClients,suppliers,setSuppliers,prodLogs,setProdLogs,showToast};
+    clients,setClients,suppliers,setSuppliers,prodLogs,setProdLogs,
+    insumos,setInsumos,user,showToast};
 
   const renderView=()=>{
     switch(view){
@@ -1740,7 +1799,7 @@ export default function SiroperApp(){
 
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"system-ui,-apple-system,sans-serif",
-      background:"#F1F5F9",overflow:"hidden"}}>
+      background:THEME.appBg,overflow:"hidden"}}>
 
       {/* Backdrop (mobile, when drawer open) */}
       {isMobile&&sideOpen&&(
@@ -1751,7 +1810,7 @@ export default function SiroperApp(){
       {/* ── SIDEBAR ── */}
       <aside style={{
         width: isMobile ? 230 : (sideOpen?SIDEBAR_W:58),
-        background:"#0D1629",display:"flex",flexDirection:"column",
+        background:THEME.sidebar,display:"flex",flexDirection:"column",
         transition:"transform .2s, width .2s",overflow:"hidden",flexShrink:0,
         boxShadow:"4px 0 24px rgba(0,0,0,.35)",
         ...(isMobile ? {
@@ -1765,15 +1824,15 @@ export default function SiroperApp(){
           display:"flex",alignItems:"center",gap:10,minHeight:60,flexShrink:0}}>
           <div style={{width:34,height:34,background:"#fff",borderRadius:10,flexShrink:0,
             display:"flex",alignItems:"center",justifyContent:"center",
-            boxShadow:`0 0 16px ${BRAND}55`}}>
+            boxShadow:`0 0 16px ${BRAND}66`}}>
             <span style={{fontSize:18,fontStyle:"italic",fontFamily:"Georgia,serif",
-              fontWeight:900,color:"#0D1629",lineHeight:1}}>S</span>
+              fontWeight:900,color:THEME.dark,lineHeight:1}}>{IS_BOSS?"S":"P"}</span>
           </div>
           {(sideOpen||isMobile)&&(
             <div style={{overflow:"hidden"}}>
               <p style={{margin:0,fontFamily:"Georgia,serif",fontStyle:"italic",
-                fontSize:19,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:-.5}}>Sirope</p>
-              <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.35)",
+                fontSize:IS_BOSS?19:15,fontWeight:900,color:"#fff",lineHeight:1.05,letterSpacing:-.5}}>{APP_NAME}</p>
+              <p style={{margin:0,fontSize:9,color:"rgba(255,255,255,.4)",
                 fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{IS_BOSS?"Admin":"Producción"}</p>
             </div>
           )}
@@ -1793,7 +1852,7 @@ export default function SiroperApp(){
                 style={{width:"100%",display:"flex",alignItems:"center",gap:10,
                   padding:"10px 9px",borderRadius:9,border:"none",cursor:"pointer",
                   marginBottom:2,textAlign:"left",transition:"all .15s",
-                  background:active?"rgba(255,107,53,.14)":"transparent",
+                  background:active?THEME.accentSoft:"transparent",
                   color:active?BRAND:"rgba(255,255,255,.5)"}}>
                 <span style={{flexShrink:0,color:active?BRAND:"rgba(255,255,255,.38)",display:"flex"}}>
                   {item.icon}
@@ -1801,10 +1860,6 @@ export default function SiroperApp(){
                 {showLabel&&(
                   <span style={{fontSize:12.5,fontWeight:active?800:500,whiteSpace:"nowrap"}}>
                     {item.label}
-                    {item.id==="dashboard"&&alerts>0&&(
-                      <span style={{background:"#DC2626",color:"#fff",borderRadius:99,
-                        fontSize:9,fontWeight:900,padding:"1px 5px",marginLeft:5}}>{alerts}</span>
-                    )}
                   </span>
                 )}
               </button>
@@ -1853,18 +1908,10 @@ export default function SiroperApp(){
             </h1>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-            {alerts>0&&(
-              <button onClick={()=>setView("inventario")}
-                style={{background:"#FEF3C7",border:"none",borderRadius:7,
-                  padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",
-                  gap:5,color:"#D97706",fontWeight:800,fontSize:11,whiteSpace:"nowrap"}}>
-                <AlertTriangle size={12}/> {alerts}{!isMobile&&" alertas"}
-              </button>
-            )}
             <div style={{width:30,height:30,borderRadius:99,
-              background:"#0D1629",display:"flex",alignItems:"center",
+              background:THEME.dark,display:"flex",alignItems:"center",
               justifyContent:"center",fontFamily:"Georgia,serif",fontStyle:"italic",
-              fontSize:14,color:"#fff",fontWeight:900,flexShrink:0}}>S</div>
+              fontSize:14,color:"#fff",fontWeight:900,flexShrink:0}}>{IS_BOSS?"S":"P"}</div>
           </div>
         </header>
 
@@ -1875,6 +1922,7 @@ export default function SiroperApp(){
       </main>
 
       {toast&&<Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)}/>}
+      {showWarning&&<WarningModal onAccept={acceptWarning}/>}
     </div>
   );
 }
