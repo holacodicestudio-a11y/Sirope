@@ -14,11 +14,11 @@ jobs:
         include:
           - role: jefe
             appid: com.sirope.inventario
-            appname: "Sirope Admin"
+            appname: "Administración Sirope"
             artifact: Sirope-Admin-APK
           - role: productor
             appid: com.sirope.produccion
-            appname: "Sirope Produccion"
+            appname: "Producción Sirope"
             artifact: Sirope-Produccion-APK
     steps:
       - uses: actions/checkout@v4
