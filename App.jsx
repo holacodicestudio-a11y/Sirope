@@ -1569,6 +1569,10 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
   }),[insumos,search,selGrp]);
 
   const valorTotal=useMemo(()=>insumos.reduce((s,i)=>s+(Number(i.stock)||0)*(Number(i.cost)||0),0),[insumos]);
+  const grpCounts=useMemo(()=>{
+    const r={}; Object.keys(INSUMO_GRP).forEach(k=>{ r[k]=insumos.filter(i=>i.grp===k).length; });
+    return r;
+  },[insumos]);
 
   const openAdd=()=>{
     const grp=selGrp||"endulzantes";
@@ -1626,12 +1630,25 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
         </Card>
       )}
 
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-        <SearchBar value={search} onChange={setSearch} placeholder="Buscar insumo..."/>
-        <FSelect value={selGrp||""} onChange={e=>setSelGrp(e.target.value||null)} style={{width:"auto",minWidth:180}}>
-          <option value="">Todas las categorías</option>
-          {Object.entries(INSUMO_GRP).map(([k,g])=><option key={k} value={k}>{g.emoji} {g.label}</option>)}
-        </FSelect>
+      {/* CATEGORÍAS arriba (como Producción): toca una para ver lo que tienes */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",
+        gap:10,marginBottom:18}}>
+        {Object.entries(INSUMO_GRP).map(([k,g])=>(
+          <div key={k} onClick={()=>setSelGrp(selGrp===k?null:k)}
+            style={{background:selGrp===k?g.bg:"#fff",
+              border:`2px solid ${selGrp===k?g.color:"#E2E8F0"}`,
+              borderRadius:12,padding:"12px 14px",cursor:"pointer",transition:"all .15s",
+              boxShadow:selGrp===k?`0 0 0 3px ${g.color}22`:"0 1px 3px rgba(0,0,0,.05)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
+              <span style={{fontSize:16}}>{g.emoji}</span>
+              <span style={{fontSize:9,fontWeight:800,color:g.color,
+                textTransform:"uppercase",letterSpacing:.4,lineHeight:1.2}}>{g.label}</span>
+            </div>
+            <p style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B",lineHeight:1}}>
+              {grpCounts[k]||0} <span style={{fontSize:10,fontWeight:400,color:"#94A3B8"}}>ítems</span>
+            </p>
+          </div>
+        ))}
       </div>
 
       <Card>
