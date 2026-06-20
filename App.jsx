@@ -137,22 +137,15 @@ const IS_BOSS = ROLE === "jefe";
 let CURRENT_USER_EMAIL = "";
 
 /* Nombre y tema visual según el rol.
-   La app de Producción ("Producción Patrona") va en rosa. */
+   Admin y Producción usan los colores originales. (La app Andy, en su
+   repo aparte, es la única en rosa.) */
 const APP_NAME = IS_BOSS ? "Administración Sirope" : "Producción Sirope";
-const THEME = IS_BOSS ? {
+const THEME = {
   brand:"#FF6B35",
   sidebar:"#0D1629",
   dark:"#0D1629",
   appBg:"#F1F5F9",
   accentSoft:"rgba(255,107,53,.14)",
-} : {
-  brand:"#DB2777",
-  sidebar:"linear-gradient(180deg,#9D174D 0%,#BE185D 55%,#DB2777 100%)",
-  dark:"#9D174D",
-  // Fondo: degradado rosa SOBRE una imagen opcional (fondo.jpg).
-  // Si pones un archivo public/fondo.jpg, se ve a través del rosa.
-  appBg:"linear-gradient(160deg,rgba(255,241,248,.90) 0%,rgba(252,231,243,.84) 45%,rgba(251,207,232,.92) 100%), url('./fondo.jpg') center / cover no-repeat",
-  accentSoft:"rgba(219,39,119,.18)",
 };
 const BRAND = THEME.brand;
 
@@ -1623,7 +1616,7 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
           <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>Insumos</h2>
           <p style={{margin:"2px 0 0",fontSize:11,color:"#94A3B8"}}>Materia prima para producción</p>
         </div>
-        {IS_BOSS&&<Btn onClick={openAdd}><Plus size={14}/> Nuevo insumo</Btn>}
+        <Btn onClick={openAdd}><Plus size={14}/> Nuevo insumo</Btn>
       </div>
 
       {IS_BOSS&&(
@@ -1663,7 +1656,7 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
                   <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                     <Btn small variant="success" onClick={()=>openMov(i,"in")} title="Entrada / agregar"><Plus size={11}/></Btn>
                     <Btn small variant="secondary" onClick={()=>openMov(i,"out")} title="Consumo / usar"><Minus size={11}/></Btn>
-                    {IS_BOSS&&<Btn small variant="secondary" onClick={()=>openEdit(i)}><Edit2 size={11}/></Btn>}
+                    <Btn small variant="secondary" onClick={()=>openEdit(i)}><Edit2 size={11}/></Btn>
                     {IS_BOSS&&<Btn small variant="danger" onClick={()=>setConfirm(i.id)}><Trash2 size={11}/></Btn>}
                   </div>
                 </Td>
@@ -1697,7 +1690,7 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
             <Field label="Mínimo (alerta)" half><FInput type="number" value={form.min} onChange={f("min")} min={0} placeholder="0"/></Field>
           </FormRow>
           <FormRow>
-            <Field label="Costo de compra ($)" half><FInput type="number" value={form.cost} onChange={f("cost")} min={0} placeholder="0.00"/></Field>
+            {IS_BOSS&&<Field label="Costo de compra ($)" half><FInput type="number" value={form.cost} onChange={f("cost")} min={0} placeholder="0.00"/></Field>}
             <Field label="Proveedor" half>
               <FSelect value={form.provId} onChange={f("provId")}>
                 <option value="">Sin proveedor</option>
