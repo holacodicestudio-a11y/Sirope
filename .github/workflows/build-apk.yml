@@ -31,8 +31,11 @@ jobs:
         run: npm install
 
       - name: Ajustar nombre e id de la app (${{ matrix.role }})
+        env:
+          APPID: ${{ matrix.appid }}
+          APPNAME: ${{ matrix.appname }}
         run: |
-          node -e "const fs=require('fs');const f='capacitor.config.json';const c=JSON.parse(fs.readFileSync(f));c.appId='${{ matrix.appid }}';c.appName='${{ matrix.appname }}';fs.writeFileSync(f,JSON.stringify(c,null,2));"
+          node -e "const fs=require('fs');const f='capacitor.config.json';const c=JSON.parse(fs.readFileSync(f));c.appId=process.env.APPID;c.appName=process.env.APPNAME;fs.writeFileSync(f,JSON.stringify(c,null,2));"
 
       - name: Compilar la app web (rol ${{ matrix.role }})
         run: npm run build
