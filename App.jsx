@@ -12,7 +12,7 @@ import {
   LayoutDashboard, Package, ArrowDownLeft, ArrowUpRight,
   Users, Truck, FlaskConical, Tag, FileSpreadsheet,
   Plus, Search, Edit2, Trash2, X, AlertTriangle,
-  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp, Boxes
+  Menu, Upload, Download, TrendingUp, RefreshCw, ChevronDown, ChevronUp, Boxes, Minus
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════
@@ -65,6 +65,24 @@ const GRP = {
 };
 
 const UNITS   = ["L","pzas","tambo","kg"];
+
+/* ══════════════════════════════════════════════
+   CATEGORÍAS DE INSUMOS (materia prima)
+   El Admin podrá añadir más cuando lleguen los grupos dinámicos.
+══════════════════════════════════════════════ */
+const INSUMO_GRP = {
+  endulzantes:  { label:"ENDULZANTES",          color:"#B45309", bg:"#FEF3C7", emoji:"🍬", defUnit:"kg"   },
+  saborizantes: { label:"SABORIZANTES",         color:"#9D174D", bg:"#FCE7F3", emoji:"🧪", defUnit:"L"    },
+  colorantes:   { label:"COLORANTES",           color:"#6D28D9", bg:"#EDE9FE", emoji:"🎨", defUnit:"L"    },
+  acidos:       { label:"ÁCIDOS / CONSERVADORES",color:"#0369A1", bg:"#E0F2FE", emoji:"⚗️", defUnit:"kg"  },
+  bases:        { label:"BASES / ESPESANTES",   color:"#78350F", bg:"#FEF9C3", emoji:"🥄", defUnit:"kg"   },
+  envases:      { label:"ENVASES",              color:"#1E40AF", bg:"#DBEAFE", emoji:"🫙", defUnit:"pzas" },
+  tapas:        { label:"TAPAS",                color:"#0E7490", bg:"#CFFAFE", emoji:"🔵", defUnit:"pzas" },
+  etiquetas:    { label:"ETIQUETAS",            color:"#B91C1C", bg:"#FEE2E2", emoji:"🏷️", defUnit:"pzas" },
+  empaque:      { label:"EMPAQUE",              color:"#C2410C", bg:"#FFF7ED", emoji:"📦", defUnit:"pzas" },
+  otros:        { label:"OTROS",                color:"#475569", bg:"#F1F5F9", emoji:"📋", defUnit:"pzas" },
+};
+const INSUMO_UNITS = ["kg","g","L","ml","pzas","caja","rollo","saco","tambo"];
 const SIDEBAR_W = 220;
 
 /* Rol de la app — se fija al construir cada APK (VITE_ROLE):
@@ -1346,6 +1364,205 @@ function ProduccionView({prodLogs,setProdLogs,products,setProducts,showToast}){
 }
 
 /* ══════════════════════════════════════════════
+   INSUMOS VIEW (materia prima)
+   Admin: alta/edición/borrado + entrada/consumo.
+   Producción: solo entrada y consumo (sin precios).
+══════════════════════════════════════════════ */
+function InsumoBadge({grp}){
+  const g=INSUMO_GRP[grp];
+  if(!g) return <span style={{color:"#94A3B8",fontSize:11}}>—</span>;
+  return(
+    <span style={{display:"inline-flex",alignItems:"center",gap:4,background:g.bg,color:g.color,
+      borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>
+      <span>{g.emoji}</span>{g.label}
+    </span>
+  );
+}
+
+function InsumosView({insumos,setInsumos,suppliers,showToast}){
+  const [search,setSearch]=useState("");
+  const [selGrp,setSelGrp]=useState(null);
+  const [modal,setModal]=useState(null);     // "add" | "edit"
+  const [mov,setMov]=useState(null);          // {insumo, mode:"in"|"out"}
+  const [form,setForm]=useState({});
+  const [movForm,setMovForm]=useState({});
+  const [confirm,setConfirm]=useState(null);
+  const f=k=>e=>setForm(prev=>({...prev,[k]:e.target.value}));
+
+  const filtered=useMemo(()=>insumos.filter(i=>{
+    const q=search.trim().toLowerCase();
+    const mQ=!q||(i.name||"").toLowerCase().includes(q);
+    const mG=!selGrp||i.grp===selGrp;
+    return mQ&&mG;
+  }),[insumos,search,selGrp]);
+
+  const valorTotal=useMemo(()=>insumos.reduce((s,i)=>s+(Number(i.stock)||0)*(Number(i.cost)||0),0),[insumos]);
+
+  const openAdd=()=>{
+    const grp=selGrp||"endulzantes";
+    setForm({name:"",grp,stock:0,min:0,unit:INSUMO_GRP[grp].defUnit,cost:0,provId:""});
+    setModal("add");
+  };
+  const openEdit=i=>{setForm({...i,provId:i.provId||"",min:i.min??0,cost:i.cost??0});setModal("edit");};
+  const save=()=>{
+    if(!(form.name||"").trim()) return showToast("El nombre es requerido","error");
+    const item={...form,stock:+form.stock||0,min:+form.min||0,cost:+form.cost||0};
+    if(modal==="add"){ setInsumos(prev=>[...prev,{...item,id:nid("ins")}]); showToast("Insumo agregado ✓"); }
+    else { setInsumos(prev=>prev.map(i=>i.id===form.id?item:i)); showToast("Insumo actualizado ✓"); }
+    setModal(null);
+  };
+  const del=id=>{ setInsumos(prev=>prev.filter(i=>i.id!==id)); showToast("Insumo eliminado"); setConfirm(null); };
+
+  const openMov=(insumo,mode)=>{ setMov({insumo,mode}); setMovForm({qty:1,cost:insumo.cost??"",notes:""}); };
+  const fm=k=>e=>setMovForm(prev=>({...prev,[k]:e.target.value}));
+  const saveMov=()=>{
+    const q=+movForm.qty;
+    if(!(q>0)) return showToast("Cantidad inválida","error");
+    const ins=mov.insumo;
+    if(mov.mode==="out" && (Number(ins.stock)||0)<q)
+      return showToast(`No hay suficiente. Disponible: ${ins.stock||0} ${ins.unit||""}`,"error");
+    setInsumos(prev=>prev.map(i=>{
+      if(i.id!==ins.id) return i;
+      const ns=(Number(i.stock)||0)+(mov.mode==="in"?q:-q);
+      const patch={...i,stock:ns};
+      if(mov.mode==="in" && movForm.cost!=="" && movForm.cost!=null) patch.cost=+movForm.cost;
+      return patch;
+    }));
+    showToast(mov.mode==="in"?`+${q} ${ins.unit||""} a ${ins.name}`:`-${q} ${ins.unit||""} de ${ins.name}`);
+    setMov(null);
+  };
+
+  const cols = IS_BOSS
+    ? ["Insumo","Categoría","Cantidad","Costo","Valor","Proveedor",""]
+    : ["Insumo","Categoría","Cantidad","Proveedor",""];
+  const nCols = cols.length;
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+        <div>
+          <h2 style={{margin:0,fontSize:19,fontWeight:900,color:"#1E293B"}}>Insumos</h2>
+          <p style={{margin:"2px 0 0",fontSize:11,color:"#94A3B8"}}>Materia prima para producción</p>
+        </div>
+        {IS_BOSS&&<Btn onClick={openAdd}><Plus size={14}/> Nuevo insumo</Btn>}
+      </div>
+
+      {IS_BOSS&&(
+        <Card style={{marginBottom:14,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:12,color:"#64748B",fontWeight:600}}>Valor total invertido en insumos</span>
+          <span style={{fontSize:18,fontWeight:900,color:BRAND}}>{fmt(valorTotal)}</span>
+        </Card>
+      )}
+
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <SearchBar value={search} onChange={setSearch} placeholder="Buscar insumo..."/>
+        <FSelect value={selGrp||""} onChange={e=>setSelGrp(e.target.value||null)} style={{width:"auto",minWidth:180}}>
+          <option value="">Todas las categorías</option>
+          {Object.entries(INSUMO_GRP).map(([k,g])=><option key={k} value={k}>{g.emoji} {g.label}</option>)}
+        </FSelect>
+      </div>
+
+      <Card>
+        <Tbl cols={cols}>
+          {filtered.length===0&&<EmptyRow cols={nCols} msg="Sin insumos. El Admin puede agregarlos con “Nuevo insumo”."/>}
+          {filtered.map(i=>{
+            const prov=suppliers.find(s=>s.id===i.provId);
+            const low=Number(i.min)>0 && Number(i.stock)<=Number(i.min);
+            return(
+              <Tr key={i.id}>
+                <Td style={{fontWeight:700}}>{i.name}</Td>
+                <Td><InsumoBadge grp={i.grp}/></Td>
+                <Td>
+                  <span style={{fontWeight:800,color:low?"#DC2626":"#1E293B"}}>{i.stock||0}</span>
+                  <span style={{color:"#94A3B8",fontSize:11}}> {i.unit}</span>
+                  {low&&<span style={{marginLeft:5,fontSize:9,fontWeight:800,color:"#DC2626"}}>BAJO</span>}
+                </Td>
+                {IS_BOSS&&<Td>{i.cost?fmt(i.cost):"—"}</Td>}
+                {IS_BOSS&&<Td style={{fontWeight:700}}>{i.cost?fmt((Number(i.stock)||0)*(Number(i.cost)||0)):"—"}</Td>}
+                <Td style={{color:"#64748B",fontSize:12}}>{prov?.name||"—"}</Td>
+                <Td>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    <Btn small variant="success" onClick={()=>openMov(i,"in")} title="Entrada / agregar"><Plus size={11}/></Btn>
+                    <Btn small variant="secondary" onClick={()=>openMov(i,"out")} title="Consumo / usar"><Minus size={11}/></Btn>
+                    {IS_BOSS&&<Btn small variant="secondary" onClick={()=>openEdit(i)}><Edit2 size={11}/></Btn>}
+                    {IS_BOSS&&<Btn small variant="danger" onClick={()=>setConfirm(i.id)}><Trash2 size={11}/></Btn>}
+                  </div>
+                </Td>
+              </Tr>
+            );
+          })}
+        </Tbl>
+      </Card>
+
+      {/* Alta / edición (solo Admin) */}
+      {modal&&(
+        <Modal title={modal==="add"?"Nuevo insumo":"Editar insumo"} onClose={()=>setModal(null)}>
+          <Field label="Nombre"><FInput value={form.name} onChange={f("name")} placeholder="Ej. Azúcar refinada"/></Field>
+          <FormRow>
+            <Field label="Categoría" half>
+              <FSelect value={form.grp} onChange={e=>{
+                const g=e.target.value;
+                setForm(prev=>({...prev,grp:g,unit:prev.unit||INSUMO_GRP[g].defUnit}));
+              }}>
+                {Object.entries(INSUMO_GRP).map(([k,g])=><option key={k} value={k}>{g.emoji} {g.label}</option>)}
+              </FSelect>
+            </Field>
+            <Field label="Unidad" half>
+              <FSelect value={form.unit} onChange={f("unit")}>
+                {INSUMO_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+              </FSelect>
+            </Field>
+          </FormRow>
+          <FormRow>
+            <Field label="Cantidad actual" half><FInput type="number" value={form.stock} onChange={f("stock")} min={0}/></Field>
+            <Field label="Mínimo (alerta)" half><FInput type="number" value={form.min} onChange={f("min")} min={0} placeholder="0"/></Field>
+          </FormRow>
+          <FormRow>
+            <Field label="Costo de compra ($)" half><FInput type="number" value={form.cost} onChange={f("cost")} min={0} placeholder="0.00"/></Field>
+            <Field label="Proveedor" half>
+              <FSelect value={form.provId} onChange={f("provId")}>
+                <option value="">Sin proveedor</option>
+                {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </FSelect>
+            </Field>
+          </FormRow>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={save}><Boxes size={13}/> {modal==="add"?"Agregar":"Guardar"}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Entrada / Consumo (todos) */}
+      {mov&&(
+        <Modal title={(mov.mode==="in"?"Entrada de ":"Consumo de ")+mov.insumo.name} onClose={()=>setMov(null)}>
+          <p style={{margin:"0 0 12px",fontSize:12,color:"#64748B"}}>
+            Disponible ahora: <b style={{color:"#1E293B"}}>{mov.insumo.stock||0} {mov.insumo.unit}</b>
+          </p>
+          <Field label={mov.mode==="in"?"Cantidad que entra":"Cantidad que se usa"}>
+            <FInput type="number" value={movForm.qty} onChange={fm("qty")} min={1}/>
+          </Field>
+          {mov.mode==="in"&&IS_BOSS&&(
+            <Field label="Actualizar costo de compra ($) — opcional">
+              <FInput type="number" value={movForm.cost} onChange={fm("cost")} min={0} placeholder="0.00"/>
+            </Field>
+          )}
+          <Field label="Nota (opcional)"><FArea value={movForm.notes} onChange={fm("notes")} placeholder={mov.mode==="in"?"Compra, devolución...":"¿En qué se usó?"}/></Field>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>setMov(null)}>Cancelar</Btn>
+            <Btn onClick={saveMov} variant={mov.mode==="in"?"success":"danger"}>
+              {mov.mode==="in"?<><Plus size={13}/> Sumar</>:<><Minus size={13}/> Restar</>}
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {confirm&&<Confirm msg="¿Eliminar este insumo?" onYes={()=>del(confirm)} onNo={()=>setConfirm(null)}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    PRECIOS VIEW
 ══════════════════════════════════════════════ */
 function PreciosView({products,setProducts,showToast}){
@@ -1606,6 +1823,7 @@ function ReportesView({products,entries,exits,clients,suppliers,prodLogs,setProd
 const NAV=[
   {id:"dashboard",  label:"Dashboard",   icon:<LayoutDashboard size={16}/>},
   {id:"inventario", label:"Inventario",  icon:<Package size={16}/>},
+  {id:"insumos",    label:"Insumos",     icon:<Boxes size={16}/>},
   {id:"entradas",   label:"Entradas",    icon:<ArrowDownLeft size={16}/>},
   {id:"salidas",    label:"Salidas",     icon:<ArrowUpRight size={16}/>},
   {id:"clientes",   label:"Clientes",    icon:<Users size={16}/>},
@@ -1890,6 +2108,7 @@ export default function SiroperApp(){
     switch(view){
       case "dashboard":   return <Dashboard {...props} setView={setView}/>;
       case "inventario":  return <InventarioView {...props}/>;
+      case "insumos":     return <InsumosView {...props}/>;
       case "entradas":    return <EntradasView {...props}/>;
       case "salidas":     return <SalidasView {...props}/>;
       case "clientes":    return <CRUDView title="Clientes"    items={clients}   setItems={setClients}   fields={CLI_FIELDS}  idKey="cli"  showToast={showToast}/>;
@@ -1902,7 +2121,7 @@ export default function SiroperApp(){
   };
 
   // Navegación según el rol. Producción solo ve Stock, Producción y Reportes.
-  const PRODUCER_VIEWS=["inventario","produccion","reportes"];
+  const PRODUCER_VIEWS=["inventario","insumos","produccion","reportes"];
   const navItems = IS_BOSS
     ? NAV
     : NAV.filter(n=>PRODUCER_VIEWS.includes(n.id))
