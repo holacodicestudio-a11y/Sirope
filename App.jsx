@@ -1748,6 +1748,15 @@ function InsumosView({insumos,setInsumos,suppliers,showToast}){
         ))}
       </div>
 
+      <div style={{display:"flex",gap:10,marginBottom:14}}>
+        <SearchBar value={search} onChange={setSearch} placeholder="Buscar insumo en la categoría..."/>
+        {selGrp&&(
+          <Btn variant="secondary" onClick={()=>setSelGrp(null)}>
+            <X size={12}/> {INSUMO_GRP[selGrp]?.label||"Categoría"}
+          </Btn>
+        )}
+      </div>
+
       <Card>
         <Tbl cols={cols}>
           {filtered.length===0&&<EmptyRow cols={nCols} msg="Sin insumos. El Admin puede agregarlos con “Nuevo insumo”."/>}
