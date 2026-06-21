@@ -2380,7 +2380,35 @@ export default function SiroperApp(){
     }catch(e){}
   };
 
-  
+  // Notificación diaria a las 6:00 AM (solo app de Producción).
+  // "Buongiorno, principessa!" — al estilo de La vida es bella.
+  useEffect(()=>{
+    if(IS_BOSS || !user) return;
+    (async()=>{
+      try{
+        if(!Capacitor.isNativePlatform?.()) return;
+        const { LocalNotifications } = await import("@capacitor/local-notifications");
+        const perm = await LocalNotifications.requestPermissions();
+        if(perm.display !== "granted") return;
+        await LocalNotifications.cancel({ notifications:[{id:600}] }).catch(()=>{});
+        await LocalNotifications.schedule({
+          notifications:[{
+            id:600,
+            title:"Buongiorno, principessa!",
+            body:"",
+            schedule:{ on:{ hour:6, minute:0 }, allowWhileIdle:true },
+          }],
+        });
+      }catch(e){ console.error("notif",e); }
+    })();
+  },[user]);
+
+  const go=(id)=>{ setView(id); if(isMobile) setSideOpen(false); };
+
+  const showToast=(msg,type="success")=>{
+    setToast({msg,type});setTimeout(()=>setToast(null),3500);
+  };
+
   // Pantalla de aviso si Firebase aún no está configurado
   if(!FIREBASE_LISTO) return <SetupScreen/>;
   // Mientras verifica la sesión
