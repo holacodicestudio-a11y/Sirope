@@ -64,7 +64,7 @@ const GRP = {
   salsa_choco:  { label:"SALSA CHOCOLATE",   color:"#451A03", bg:"#FDE68A", emoji:"🍫",  defUnit:"pzas" },
 };
 
-const UNITS   = ["L","pzas","tambo","kg"];
+const UNITS   = ["120ml","1L","4L","10L","20L","200L","1kg","L","kg","pzas","tambo"];
 
 /* ══════════════════════════════════════════════
    CATEGORÍAS DE INSUMOS (materia prima)
@@ -82,7 +82,7 @@ const INSUMO_GRP = {
   empaque:      { label:"EMPAQUE",              color:"#C2410C", bg:"#FFF7ED", emoji:"📦", defUnit:"pzas" },
   otros:        { label:"OTROS",                color:"#475569", bg:"#F1F5F9", emoji:"📋", defUnit:"pzas" },
 };
-const INSUMO_UNITS = ["kg","g","L","ml","pzas","caja","rollo","saco","tambo"];
+const INSUMO_UNITS = ["120ml","1L","4L","10L","20L","200L","1kg","kg","g","L","ml","pzas","caja","rollo","saco","tambo"];
 
 /* ══════════════════════════════════════════════
    GRUPOS DINÁMICOS
